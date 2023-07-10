@@ -1,0 +1,6 @@
+[submodule "TCAN"]
+	path = TCAN
+	url = git@github.com:ForceLightning/TCAN.git
+[submodule "TCN"]
+	path = TCN
+	url = git@github.com:ForceLightning/TCN.git
