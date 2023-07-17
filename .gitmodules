@@ -7,3 +7,5 @@
 [submodule "1D-Grad-CAM-for-interpretable-intelligent-fault-diagnosis"]
 	path = GradCAM1D
 	url = https://github.com/liguge/1D-Grad-CAM-for-interpretable-intelligent-fault-diagnosis.git
+[submodule ".\\GradCAM1D\\"]
+	url = git@github.com:ForceLightning/GradCAM1D.git
