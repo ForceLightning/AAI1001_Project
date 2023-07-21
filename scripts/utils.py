@@ -1,10 +1,11 @@
-from TCN.TCN.tcn import TCN_DimensionalityReduced
 import sys
 import os
 
 import json
-import signal
 from typing import Callable
+
+from TCN.TCN.tcn import TCN_DimensionalityReduced
+from scripts.GradCAM1D import GradCAM as GradCAM1D
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,7 +30,6 @@ from fastai.callback.fp16 import MixedPrecision
 from fastai.metrics import skm_to_fastai
 
 sys.path.append("../" + os.path.dirname(os.path.realpath(__file__)))
-
 
 class ECGDataset(Dataset):
     """ECG Dataset class.
@@ -57,6 +57,7 @@ class ECGDataset(Dataset):
                     self.data += zip(hbs, labels)
         if in_memory:
             self.X = np.array([hb for (hb, _) in self.data])
+            self.X = torch.from_numpy(self.X)
             self.y = np.array([label for (_, label) in self.data])
             del self.data
 
@@ -110,10 +111,28 @@ class ECGDataset(Dataset):
 
 
 def one_hot_encode(label, classes=["N", "S", "V", "F", "Q"]):
+    """Performs one-hot encoding on a label.
+
+    Args:
+        label (str): label to encode
+        classes (list, optional): list of classes ordered by encoding index. Defaults to ["N", "S", "V", "F", "Q"].
+
+    Returns:
+        torch.Tensor: one-hot encoded label
+    """
     return torch.eye(len(classes))[classes.index(label)]
 
 
 def one_hot_decode(label, classes=["N", "S", "V", "F", "Q"]):
+    """Decodes a one-hot encoded label.
+
+    Args:
+        label (np.ndarray): one-hot encoded label with shape (num_classes, )
+        classes (list, optional): target class names with order corresponding to the encoding index. Defaults to ["N", "S", "V", "F", "Q"].
+
+    Returns:
+        str: decoded label
+    """
     return classes[label.argmax()]
 
 
@@ -124,6 +143,19 @@ def noise_at_frequencies(
     },
     fs=360
 ):
+    """Generates noise at specified frequencies and adds it to a heartbeat signal.
+
+    Args:
+        hb (numpy.ndarray): heartbeat signal
+        frequencies_distribution (dict, optional): distributions of noise frequencies and amplitudes. The distribution is assumed to be uniform. Defaults to { "breathing": ([1/18, 1/12], [1/5, 1/3]) }.
+        fs (int, optional): sampling rate. Defaults to 360.
+
+    Returns:
+        numpy.ndarray: augmented heartbeat signal
+
+    See Also:
+        noise_at_frequencies_tensor for the torch.Tensor version
+    """
     noise = np.zeros(hb.shape)
     for (source, (freq_range, amp_range)) in frequencies_distribution.items():
         freq = np.random.uniform(*freq_range)
@@ -145,7 +177,7 @@ def noise_at_frequencies_tensor(
 
     Args:
         hb (torch.Tensor): heartbeat signal
-        frequencies_distribution (dict, optional): distributions of noise frequencies and amplitudes. Defaults to { "breathing": ([1/18, 1/12], [1/5, 1/3]) }.
+        frequencies_distribution (dict, optional): distributions of noise frequencies and amplitudes. The distribution is assumed to be uniform. Defaults to { "breathing": ([1/18, 1/12], [1/5, 1/3]) }.
         fs (int, optional): sampling rate. Defaults to 360.
 
     Returns:
@@ -173,16 +205,18 @@ def z_normalise(hb):
     return (hb - hb.mean()) / hb.std()
 
 
-def hb_transform(hb):
+def hb_transform(hb, input_is_tensor=False):
     """Transforms a heartbeat signal.
 
     Args:
         hb (np.ndarray): heartbeat signal
+        input_is_tensor (bool, optional): whether the input is a tensor. Defaults to False.
 
     Returns:
         torch.tensor: transformed heartbeat signal
     """
-    hb = torch.from_numpy(hb)
+    if not input_is_tensor:
+        hb = torch.from_numpy(hb)
     hb = noise_at_frequencies_tensor(hb)
     hb = z_normalise(hb)
     return hb
@@ -264,7 +298,7 @@ class LogInterruptable(Callback):
             json.dump(self.interrupt_info, f, indent=4)
 
 
-def k_fold_inference(model, test_dl, model_dir="./prototyping/tcn_fold_", weights_fn="best", k=10):
+def k_fold_inference(model, test_dl, model_dir="./prototyping/tcn_fold_", weights_fn="best", k=10, target_names=["N", "S", "V", "F", "Q"]):
     """Performs inference on a k-fold model
 
     Args:
@@ -273,6 +307,7 @@ def k_fold_inference(model, test_dl, model_dir="./prototyping/tcn_fold_", weight
         model_dir (str, optional): directory for all the model weights for each fold. Defaults to "./prototyping/tcn_fold_".
         weights_fn (str, optional): filename for weights file, .pth file suffix unnecessary. Defaults to "best".
         k (int, optional): number of folds. Defaults to 10.
+        target_names (list, optional): list of target names. Defaults to ["N", "S", "V", "F", "Q"].
 
     Returns:
         (list, list): model_outputs, classification_reports for each fold
@@ -293,19 +328,32 @@ def k_fold_inference(model, test_dl, model_dir="./prototyping/tcn_fold_", weight
                 y.cpu().numpy(),
                 preds,
                 output_dict=True,
-                target_names=["N", "S", "V", "F", "Q"]
+                target_names=target_names
             )
         )
         model_outputs.append({
-            "preds": preds,
-            "proba": proba,
-            "y": y,
+            "preds": preds.detach().cpu().numpy(),
+            "proba": proba.detach().cpu().numpy(),
+            "y": y.cpu().numpy(),
         })
     return model_outputs, classification_reports
 
 
-def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="macro"):
-    fig, ax = plt.subplots(2, 1, figsize=(8.27, 11.69), dpi=100)
+def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="macro", legend_key="Fold", show_mean_and_std=True):
+    """Plots ROC and PRC curves for a k-fold model.
+
+    Args:
+        model_outputs (dict): model outputs from k_fold_inference
+        model_name (str): name of the model to display on the plot.
+        num_classes (int, optional): number of classification targets. Defaults to 5.
+        average (str, optional): defines the method for calculating averages for multi-class targets. Can be ("macro" | "weighted") Defaults to "macro".
+        legend_key (str, optional): name of the type of iteration to display on the plot. Defaults to "Fold".
+        show_mean_and_std (bool, optional): shows the mean and 1 std dev of the ROC curve and PRC. Defaults to True.
+
+    Raises:
+        NotImplementedError: if average is not ("macro" | "weighted")
+    """
+    fig, ax = plt.subplots(2, 1, figsize=(8.27, 11.69), dpi=100) 
     tprs, aurocs, tpr_threshes = [], [], []
     fpr_mean = np.linspace(0, 1, 1000)
     precisions, auprcs, recall_threshes = [], [], []
@@ -320,7 +368,7 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
                 continue
             # ROC Curve
             fpr, tpr, tpr_thresh = sk_roc_curve(
-                y_onehot_test[:, i], fold['proba'].detach().cpu().numpy()[:, i])
+                y_onehot_test[:, i], fold['proba'][:, i])
             intermediate_tpr_threshes.append(
                 tpr_thresh[np.abs(tpr-0.85).argmin()])
             tpr_interp = np.interp(fpr_mean, fpr, tpr)
@@ -328,7 +376,7 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
             intermediate_tprs.append(tpr_interp)
             # PRC
             precision, recall, prc_thresh = precision_recall_curve(
-                y_onehot_test[:, i], fold['proba'].detach().cpu().numpy()[:, i])
+                y_onehot_test[:, i], fold['proba'][:, i])
             prec_interp = np.interp(recall_mean, recall[::-1], precision[::-1])
             intermediate_precisions.append(prec_interp)
             intermediate_recall_threshes.append(
@@ -336,8 +384,7 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
             intermediate_auprcs.append(auc(recall, precision))
         if average == "macro":
             tprs.append(np.mean(intermediate_tprs, axis=0))
-            aurocs.append(roc_auc_score(y_onehot_test, fold["proba"].detach().cpu().numpy(
-            ), average="macro", multi_class="ovr", labels=list(set(fold["y"].numpy().tolist()))))
+            aurocs.append(roc_auc_score(y_onehot_test, fold["proba"],average="macro", multi_class="ovr", labels=list(set(fold["y"].tolist()))))
             tpr_threshes.append(np.mean(intermediate_tpr_threshes))
             precisions.append(np.mean(intermediate_precisions, axis=0))
             auprcs.append(auc(recall_mean, precisions[-1]))
@@ -346,7 +393,7 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
             class_distributions = np.bincount(fold["y"])
             aurocs.append(roc_auc_score(
                 y_onehot_test,
-                fold["proba"].detach().cpu().numpy(),
+                fold["proba"],
                 average="weighted",
                 multi_class="ovr"
             ))
@@ -368,10 +415,10 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
         else:
             raise NotImplementedError
         ax[0].plot(fpr_mean, tprs[-1],
-                   label=f"ROC Fold {fold_idx + 1} (AUC = {aurocs[fold_idx]:0.2f})", alpha=.3)
+                   label=f"ROC {legend_key} {fold_idx + 1} (AUC = {aurocs[fold_idx]:0.2f})", alpha=.3)
         # Precision-Recall Curve
         ax[1].plot(recall_mean, precisions[-1],
-                   label=f"PRC Fold {fold_idx + 1} (AUC = {auprcs[fold_idx]:0.2f})", alpha=.3)
+                   label=f"PRC {legend_key} {fold_idx + 1} (AUC = {auprcs[fold_idx]:0.2f})", alpha=.3)
 
     ax[0].set_xlabel("False Positive Rate")
     ax[0].set_ylabel("True Positive Rate")
@@ -385,39 +432,124 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
     ax[1].set_ylim(-0.1, 1.1)
 
     # ROC
-    tpr_mean = np.mean(tprs, axis=0)
-    tpr_mean[-1] = 1.0
-    auroc_mean = auc(fpr_mean, tpr_mean)
-    auroc_std = np.std(aurocs)
-    ax[0].plot(
-        fpr_mean, tpr_mean,
-        label=r"Mean ROC (AUC = %0.2f $\pm$ %0.2f)" % (auroc_mean, auroc_std),
-        lw=2, alpha=.8
-    )
-    tpr_std = np.std(tprs, axis=0)
-    ax[0].fill_between(
-        fpr_mean, np.maximum(tpr_mean - tpr_std, 0),
-        np.minimum(tpr_mean + tpr_std, 1), alpha=.2,
-        label=r"$\pm$ 1 std. dev.", color='grey'
-    )
+    if show_mean_and_std:
+        tpr_mean = np.mean(tprs, axis=0)
+        tpr_mean[-1] = 1.0
+        auroc_mean = auc(fpr_mean, tpr_mean)
+        auroc_std = np.std(aurocs)
+        ax[0].plot(
+            fpr_mean, tpr_mean,
+            label=r"Mean ROC (AUC = %0.2f $\pm$ %0.2f)" % (auroc_mean, auroc_std),
+            lw=2, alpha=.8
+        )
+        tpr_std = np.std(tprs, axis=0)
+        ax[0].fill_between(
+            fpr_mean, np.maximum(tpr_mean - tpr_std, 0),
+            np.minimum(tpr_mean + tpr_std, 1), alpha=.2,
+            label=r"$\pm$ 1 std. dev.", color='grey'
+        )
 
-    # PRC
-    prec_mean = np.mean(precisions, axis=0)
-    auprc_mean = auc(recall_mean, prec_mean)
-    auprc_std = np.std(auprcs)
-    ax[1].plot(
-        recall_mean, prec_mean,
-        label=r"Mean PRC (AUC = %0.2f $\pm$ %0.2f)" % (auprc_mean, auprc_std),
-        lw=2, alpha=.8
-    )
-    prec_std = np.std(precisions, axis=0)
-    ax[1].fill_between(
-        recall_mean, np.maximum(prec_mean - prec_std, 0),
-        np.minimum(prec_mean + prec_std, 1), alpha=.2,
-        label=r"$\pm$ 1 std. dev.", color='grey'
-    )
+        # PRC
+        prec_mean = np.mean(precisions, axis=0)
+        auprc_mean = auc(recall_mean, prec_mean)
+        auprc_std = np.std(auprcs)
+        ax[1].plot(
+            recall_mean, prec_mean,
+            label=r"Mean PRC (AUC = %0.2f $\pm$ %0.2f)" % (auprc_mean, auprc_std),
+            lw=2, alpha=.8
+        )
+        prec_std = np.std(precisions, axis=0)
+        ax[1].fill_between(
+            recall_mean, np.maximum(prec_mean - prec_std, 0),
+            np.minimum(prec_mean + prec_std, 1), alpha=.2,
+            label=r"$\pm$ 1 std. dev.", color='grey'
+        )
 
     fig.suptitle(f"ROC and PRC Curves for {model_name}")
     ax[0].legend()
     ax[1].legend()
     plt.show()
+
+def perturb_to_mean(batched_inputs, batched_cam, step_size=0.25):
+    """Perturbs the signal to the mean based on the GradCAM saliency map and step size.
+
+    Args:
+        batched_inputs (torch.Tensor): batched inputs with shape (batch_size, num_channels, signal_length)
+        batched_cam (numpy.ndarray): batched GradCAM saliency map with shape (batch_size, signal_length)
+        step_size (float, optional): how much the signal is augmented towards the mean. Defaults to 0.25.
+
+    Returns:
+        numpy.ndarray: batched augmented signal
+    """
+    mean = batched_inputs.mean(dim=1)
+    perturbed_signal = (batched_inputs - mean.repeat(360, 1).T).numpy()
+    diff = batched_cam * perturbed_signal
+    diff *= step_size
+    perturbed_signal = perturbed_signal + mean.repeat(360, 1).T.numpy() - diff
+    return perturbed_signal
+
+def iterate_perturbations(dataset:ECGDataset, model, target_layer, num_iter:int=10, batch_size=2048, step_size=0.25, save_directory="./models/", save_file_str_format="perturbed_data_{idx}", num_workers=0):
+    """Augments the signal based on the GradCAM saliency map.
+
+    Args:
+        dataset (ECGDataset): ECG Dataset with in_memory set to True
+        model (torch.nn.Module): Pytorch model
+        target_layer (torch.nn.Module): target layers for GradCAM
+        num_iter (int, optional): number of perturbation iterations. Defaults to 10.
+        batch_size (int, optional): mini batch size for inference. Defaults to 2048.
+        step_size (float, optional): how much of a step the augmentation takes towards the signal mean. Defaults to 0.25.
+        save_directory (str, optional): directory to save model outputs to. Defaults to "./models/".
+        save_file_str_format (str, optional): format for model outputs save file. `idx` represents the iteration number starting from 0. Defaults to "perturbed_data_{idx}".
+        num_workers (int, optional): number of workers for the dataloader. Note that persistent_workers is always set to False due to the modification of the dataset object. Defaults to 0.
+
+    Returns:
+        dict: model outputs
+    """
+    model_outputs = []
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=num_workers)
+    with GradCAM1D(model=model, target_layer=target_layer, use_cuda=True) as cam:
+        for idx in tqdm(range(num_iter), position=0, leave=True):
+            ys, preds, inputs, outputs, cams = [], [], [], [], []
+            for i, (in_tensor, target_tensor) in enumerate(tqdm(loader, position=1, leave=False)):
+                greyscale_cam = cam(in_tensor, target_tensor)
+                perturbed_data = perturb_to_mean(in_tensor.detach(), greyscale_cam, step_size=step_size)
+                end_idx = min((i + 1) * batch_size, len(dataset.X))
+                dataset.X[i * batch_size:end_idx] = torch.from_numpy(perturbed_data)
+                with torch.no_grad(): # get model outputs on perturbed data from the previous iteration
+                    output = model(in_tensor.cuda()).cpu().detach()
+                    proba = nn.functional.softmax(output, dim=1)
+                    pred = proba.argmax(dim=1)
+                    inputs.append(in_tensor.detach().numpy())
+                    ys.append(target_tensor.numpy())
+                    preds.append(pred.numpy())
+                    outputs.append(output.numpy())
+                    cams.append(greyscale_cam)
+                torch.cuda.empty_cache()
+            ys = np.concatenate(ys)
+            preds = np.concatenate(preds)
+            outputs = np.concatenate(outputs)
+            inputs = np.concatenate(inputs)
+            cams = np.concatenate(cams)
+            if save_file_str_format is not None:
+                np.savez_compressed(
+                    os.path.join(save_directory, save_file_str_format.format(idx=idx)),
+                    inputs=inputs,
+                    y=ys,
+                    preds=preds,
+                    proba=outputs,
+                    cams=cams
+                )
+                model_outputs.append({
+                    "proba": outputs,
+                    "y": ys
+                })
+            else:
+                model_outputs.append({
+                    "preds": preds,
+                    "proba": outputs,
+                    "y": ys,
+                    "inputs": inputs,
+                    "cams": cams
+                })
+    # loader._iterator._shutdown_workers()
+    return model_outputs
