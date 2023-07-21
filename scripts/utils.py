@@ -361,7 +361,7 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
     for fold_idx, fold in enumerate(tqdm(model_outputs)):
         roc_label_binarizer = LabelBinarizer().fit(fold["y"])
         y_onehot_test = roc_label_binarizer.transform(fold["y"])
-        intermediate_tprs, intermediate_tpr_threshes = [], []
+        intermediate_tprs, intermediate_tpr_threshes, intermediate_aurocs = [], [], []
         intermediate_precisions, intermediate_recall_threshes, intermediate_auprcs = [], [], []
         for i in range(num_classes):
             if i not in fold["y"]:
@@ -374,6 +374,7 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
             tpr_interp = np.interp(fpr_mean, fpr, tpr)
             tpr_interp[0] = 0.0
             intermediate_tprs.append(tpr_interp)
+            intermediate_aurocs.append(auc(fpr, tpr))
             # PRC
             precision, recall, prc_thresh = precision_recall_curve(
                 y_onehot_test[:, i], fold['proba'][:, i])
@@ -384,34 +385,31 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
             intermediate_auprcs.append(auc(recall, precision))
         if average == "macro":
             tprs.append(np.mean(intermediate_tprs, axis=0))
-            aurocs.append(roc_auc_score(y_onehot_test, fold["proba"],average="macro", multi_class="ovr", labels=list(set(fold["y"].tolist()))))
+            aurocs.append(np.mean(intermediate_aurocs))
             tpr_threshes.append(np.mean(intermediate_tpr_threshes))
             precisions.append(np.mean(intermediate_precisions, axis=0))
             auprcs.append(auc(recall_mean, precisions[-1]))
             recall_threshes.append(np.mean(intermediate_recall_threshes))
         elif average == "weighted":
             class_distributions = np.bincount(fold["y"])
-            aurocs.append(roc_auc_score(
-                y_onehot_test,
-                fold["proba"],
-                average="weighted",
-                multi_class="ovr"
-            ))
             if len(class_distributions) < num_classes:
                 class_distributions = np.append(class_distributions, np.zeros(
                     num_classes - len(class_distributions)))
             # normalize the class distributions
             class_distributions = class_distributions / \
                 np.sum(class_distributions)
+            aurocs.append(np.array(intermediate_aurocs).T @
+                          class_distributions.reshape(-1, 1))
             tprs.append(np.array(intermediate_tprs).T @
                         class_distributions.reshape(-1, 1))
             precisions.append(np.array(intermediate_precisions).T @
                               class_distributions.reshape(-1, 1))
             auprcs.append(np.array(intermediate_auprcs).T @
                           class_distributions.reshape(-1, 1))
+            aurocs[-1] = aurocs[-1][0] # unpack
+            auprcs[-1] = auprcs[-1][0]
             tprs[-1] = tprs[-1].reshape(-1)
             precisions[-1] = precisions[-1].reshape(-1)
-            auprcs[-1] = auprcs[-1][0]
         else:
             raise NotImplementedError
         ax[0].plot(fpr_mean, tprs[-1],
