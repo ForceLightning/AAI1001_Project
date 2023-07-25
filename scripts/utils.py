@@ -109,6 +109,29 @@ class ECGDataset(Dataset):
     def get_labels(self):
         return self.y
 
+class ECGInferenceSet(Dataset):
+    """ Dataset class for inference.
+    
+    Args:
+        data (numpy.ndarray): array of heartbeats with shape (num_samples, num_channels, signal_length)
+        item_transform (Callable, optional): item transform. Defaults to None.
+    """
+    def __init__(self, data, item_transform) -> None:
+        super().__init__()
+        self.data = data
+        if type(self.data) == np.ndarray:
+            self.data = torch.from_numpy(self.data)
+        self.item_transform = item_transform
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        assert idx < self.__len__()
+        hb = self.data[idx]
+        hb = self.item_transform(hb) if self.item_transform else hb
+        return hb
+
 
 def one_hot_encode(label, classes=["N", "S", "V", "F", "Q"]):
     """Performs one-hot encoding on a label.
@@ -486,7 +509,7 @@ def perturb_to_mean(batched_inputs, batched_cam, step_size=0.25):
     perturbed_signal = perturbed_signal + mean.repeat(360, 1).T.numpy() - diff
     return perturbed_signal
 
-def iterate_perturbations(dataset:ECGDataset, model, target_layer, num_iter:int=10, batch_size=2048, step_size=0.25, save_directory="./models/", save_file_str_format="perturbed_data_{idx}", num_workers=0):
+def iterate_perturbations(dataset:ECGDataset, model, target_layer, num_iter:int=10, batch_size=2048, step_size=0.25, save_directory="./models/", save_file_str_format="perturbed_data_{idx}", num_workers=0, use_cuda=True):
     """Augments the signal based on the GradCAM saliency map.
 
     Args:
@@ -499,13 +522,14 @@ def iterate_perturbations(dataset:ECGDataset, model, target_layer, num_iter:int=
         save_directory (str, optional): directory to save model outputs to. Defaults to "./models/".
         save_file_str_format (str, optional): format for model outputs save file. `idx` represents the iteration number starting from 0. Defaults to "perturbed_data_{idx}".
         num_workers (int, optional): number of workers for the dataloader. Note that persistent_workers is always set to False due to the modification of the dataset object. Defaults to 0.
+        use_cuda (bool, optional): whether to use CUDA. Defaults to True.
 
     Returns:
         dict: model outputs
     """
     model_outputs = []
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=num_workers)
-    with GradCAM1D(model=model, target_layer=target_layer, use_cuda=True) as cam:
+    with GradCAM1D(model=model, target_layer=target_layer, use_cuda=use_cuda) as cam:
         for idx in tqdm(range(num_iter), position=0, leave=True):
             ys, preds, inputs, outputs, cams = [], [], [], [], []
             for i, (in_tensor, target_tensor) in enumerate(tqdm(loader, position=1, leave=False)):

@@ -1,15 +1,27 @@
+import ctypes
+
 import tkinter as tk
 from tkinter import ttk, filedialog
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import ctypes
-import pandas as pd
+
+import numpy as np
+import wfdb
+from wfdb.processing import gqrs_detect
+from tqdm.auto import tqdm
+
+import torch
+from torch import nn
+from torch.utils.data import DataLoader
+
+from scripts.utils import *
+from scripts.GradCAM1D import GradCAM as GradCAM1D
 
 #boolean, True - show layout 1, False - show layout 2 
 b_toggle_layout = True
 
 def init_window():
-     #init window
+    # init window
     window = tk.Tk()
     window.title("Electrocardiogram")
 
@@ -43,7 +55,7 @@ def init_layout_1(parent):
     label.pack()
 
     #buttons 
-    btn_select = tk.Button(parent, text="Select CSV File", command=process_data)
+    btn_select = tk.Button(parent, text="Select ECG File", command=process_data)
     btn_select.pack(pady=20)
 
     # Setting of Screen Width
@@ -118,7 +130,7 @@ def plot_graph(data):
     for widget in graph_frame.winfo_children():
         widget.destroy()
 
-   
+
     canvas = FigureCanvasTkAgg(fig, master=graph_frame)
     canvas.draw()
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -142,23 +154,60 @@ def process_data():
     # except Exception as e:
     #     print("Error reading the CSV file:", e)
 
-    data = data_entry.get()
-    try:
-        data_list = [float(x) for x in data.split(',')]
-        plot_graph(data_list)
-    except ValueError:
-        print("Invalid input. Please enter a comma-separated list of numbers.")
+    file_path = filedialog.askopenfilename(filetypes=[("WFDB Data Files", "*.dat")])
+    if not file_path:
+        return
 
-def model_load():
-    #TODO : insert Chris' model code
-    return
+    file_path = file_path.replace('.dat', '')
+    sample = wfdb.rdrecord(file_path)
+    qrs_locs = gqrs_detect(sample.p_signal[:, 0], sample.fs)
+    heartbeats = []
+    # Splits the data into 360-sample heartbeats.
+    for loc in qrs_locs:
+        if loc < 180 or loc > len(sample.p_signal) - 180:
+            continue
+        heartbeats.append(sample.p_signal[loc - 180:loc + 180, 0])
+    heartbeats = np.array(heartbeats)
 
-def model_predict() -> tuple:
-    probabilities = []
-    explainability = []
-    #TODO : insert Chris' model code
-    return probabilities, explainability
-    
+    global dataset
+    dataset = ECGInferenceSet(heartbeats, hb_transform)
+
+    # data = data_entry.get()
+    # try:
+    #     data_list = [float(x) for x in data.split(',')]
+    #     plot_graph(data_list)
+    # except ValueError:
+    #     print("Invalid input. Please enter a comma-separated list of numbers.")
+
+def model_load() -> tuple:
+    model = TCN(360, 5, [32]*9, 2, 0.125, use_skip_connections=True)
+    model.load_state_dict(torch.load('./models/prototyping6/tcn_fold_10/best.pth'))
+    target_layer = model.tcn.network[-1].conv2
+    return model, target_layer
+
+def model_predict(model, target_layer) -> tuple:
+    use_cuda = torch.cuda.is_available()
+    loader = DataLoader(dataset, batch_size=1024, shuffle=False, pin_memory=True)
+    with GradCAM1D(model=model, target_layer=target_layer, use_cuda=use_cuda) as cam:
+        preds, probas, cams = [], [], []
+        for _, inputs in tqdm(enumerate(loader)):
+            model.eval()
+            with torch.no_grad():
+                if use_cuda:
+                    inputs = inputs.cuda()
+                inputs = inputs.unsqueeze(1)
+                output = model(inputs).cpu().detach()
+                proba = nn.functional.softmax(output, dim=1)
+                pred = proba.argmax(dim=1)
+                preds.append(pred.numpy())
+                probas.append(proba.numpy())
+            greyscale_cams = cam(inputs, target_category=pred)
+            cams.append(greyscale_cams)
+        preds = np.concatenate(preds)
+        cams = np.concatenate(cams)
+        probas = np.concatenate(probas)
+    return probas, cams
+
 
 if __name__ == "__main__":
     window, layout_1, layout_2 = init_window()
@@ -166,7 +215,9 @@ if __name__ == "__main__":
     graph_frame = init_layout_2(layout_2)
 
     #TODO : load model here
-    
+    # model, target_layer = model_load()
+
     #TODO : call model_predict in/ together with plotgraph, and change layout_2 accordingly
+    # proba, cams = model_predict(model, target_layer)
 
     window.mainloop()
