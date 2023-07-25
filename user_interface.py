@@ -125,7 +125,8 @@ def plot_graph(data):
 
 
 def process_data(): 
-    
+    #TODO : check on data entry method
+
     ##########This is the part that reads the csv data but I am not sure which value to take for plotting##############
     # file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
     # if not file_path:
@@ -148,6 +149,16 @@ def process_data():
     except ValueError:
         print("Invalid input. Please enter a comma-separated list of numbers.")
 
+def model_load():
+    #TODO : insert Chris' model code
+    return
+
+def model_predict() -> tuple:
+    probabilities = []
+    explainability = []
+    #TODO : insert Chris' model code
+    return probabilities, explainability
+    
 
 if __name__ == "__main__":
     window, layout_1, layout_2 = init_window()
@@ -156,6 +167,6 @@ if __name__ == "__main__":
 
     #TODO : load model here
     
-    #TODO : call predict in/ together with plotgraph, and change layout_2 accordingly
+    #TODO : call model_predict in/ together with plotgraph, and change layout_2 accordingly
 
     window.mainloop()
