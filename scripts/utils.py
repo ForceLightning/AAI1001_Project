@@ -228,7 +228,7 @@ def z_normalise(hb):
     return (hb - hb.mean()) / hb.std()
 
 
-def hb_transform(hb, input_is_tensor=False):
+def hb_transform(hb, input_is_tensor=False, add_noise=True):
     """Transforms a heartbeat signal.
 
     Args:
@@ -240,7 +240,8 @@ def hb_transform(hb, input_is_tensor=False):
     """
     if not input_is_tensor:
         hb = torch.from_numpy(hb)
-    hb = noise_at_frequencies_tensor(hb)
+    if add_noise:
+        hb = noise_at_frequencies_tensor(hb)
     hb = z_normalise(hb)
     return hb
 

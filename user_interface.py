@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.collections import LineCollection
 
 import numpy as np
 import wfdb
@@ -135,6 +136,27 @@ def plot_graph(data):
     canvas.draw()
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+def plot_explainability(heartbeat:np.ndarray, cam:np.ndarray, fig: plt.Figure, ax: plt.Axes, length_time:float=1.0, fs:int=360, cmap:str="inferno"):
+    """Plots the Grad-CAM heatmap for a heartbeat.
+
+    Args:
+        heartbeat (numpy.ndarray): heartbeat signal of shape (signal_length,)
+        cam (numpy.ndarray): Grad-CAM heatmap of shape (signal_length,)
+        fig (matplotlib.pyplot.Figure): figure to plot on
+        ax (matplotlib.pyplot.Axes): axes to plot on
+        length_time (float): length of the heartbeat signal in seconds
+        fs (int): sampling frequency of the heartbeat signal
+        cmap (str): name of the matplotlib colormap to use
+    """
+    x = np.arange(0, length_time, length_time/fs)
+    points = np.array([x, heartbeat]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    norm = plt.Normalize(cam.min(), cam.max())
+    lc = LineCollection(segments, cmap='jet', norm=norm)
+    lc.set_array(cam.T)
+    fig.colorbar(lc, ax=ax)
+    ax.set_ylim(heartbeat.min(), heartbeat.max())
+    return
 
 def process_data(): 
     #TODO : check on data entry method
