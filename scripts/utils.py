@@ -18,7 +18,7 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader, Subset
 
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay, auc, precision_recall_curve, roc_auc_score
+from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay, auc, precision_recall_curve, roc_auc_score, precision_score
 from sklearn.metrics import roc_curve as sk_roc_curve
 from sklearn.preprocessing import LabelBinarizer
 from scipy.interpolate import interp1d
@@ -372,6 +372,8 @@ class LogInterruptable(Callback):
         with open(self.filename, "w") as f:
             json.dump(self.interrupt_info, f, indent=4)
 
+def fastai_precision_score(axis=-1, labels=None, pos_label=1, average='binary', sample_weight=None, zero_division='warn'):
+    return skm_to_fastai(precision_score, axis=axis, labels=labels, pos_label=pos_label, average=average, sample_weight=sample_weight, zero_division=zero_division)
 
 def k_fold_inference(
     model: nn.Module,
@@ -401,8 +403,13 @@ def k_fold_inference(
     model_outputs = []
     classification_reports = []
     for fold in range(k):
-        learner = Learner(model=model.cuda(), dls=test_dl,
-                          loss_func=nn.CrossEntropyLoss(), cbs=[MixedPrecision()])
+        if torch.cuda.is_available():
+            model = model.cuda()
+            cbs = [MixedPrecision()]
+        else:
+            cbs = None
+        learner = Learner(model=model, dls=test_dl,
+                        loss_func=nn.CrossEntropyLoss(), cbs=cbs)
         print(model_dir + f"{fold + 1}" + "/" + weights_fn)
         learner.load(model_dir + f"{fold + 1}" + "/" + weights_fn)
         proba, y = learner.get_preds(dl=test_dl)
@@ -556,7 +563,7 @@ def k_fold_roc_curve(
             label=r"$\pm$ 1 std. dev.", color='grey'
         )
 
-    fig.suptitle(f"ROC and PRC Curves for {model_name}")
+    fig.suptitle(f"ROC and PRC Curves for {model_name}, average={average}")
     ax[0].legend()
     ax[1].legend()
     plt.show()
