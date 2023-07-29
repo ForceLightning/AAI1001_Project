@@ -2,7 +2,7 @@ import sys
 import os
 
 import json
-from typing import Callable
+from typing import Callable, Tuple, Union, Optional, List, Dict
 
 from TCN.TCN.tcn import TCN_DimensionalityReduced
 from scripts.GradCAM1D import GradCAM as GradCAM1D
@@ -18,7 +18,7 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader, Subset
 
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay, auc, precision_recall_curve, roc_auc_score
+from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay, auc, precision_recall_curve, roc_auc_score, precision_score
 from sklearn.metrics import roc_curve as sk_roc_curve
 from sklearn.preprocessing import LabelBinarizer
 from scipy.interpolate import interp1d
@@ -31,6 +31,7 @@ from fastai.metrics import skm_to_fastai
 
 sys.path.append("../" + os.path.dirname(os.path.realpath(__file__)))
 
+
 class ECGDataset(Dataset):
     """ECG Dataset class.
 
@@ -40,6 +41,7 @@ class ECGDataset(Dataset):
         target_transform (Callable, optional): target transform. Defaults to None.
         in_memory (bool, optional): whether to load all data into memory. Defaults to True.
     """
+
     def __init__(self, data_dir, item_transform=None, target_transform=None, in_memory=True) -> None:
         self.data_dir = data_dir
         self.lengths = {}
@@ -76,12 +78,13 @@ class ECGDataset(Dataset):
             idx (int): index
 
         Raises:
-            IndexError: if index is out of bounds
+            [IndexError | AssertionError]: if index is out of bounds
 
         Returns:
-            (np.ndarray, str): heartbeat signal and label
+            ([numpy.ndarray | torch.Tensor], [str | torch.Tensor]): heartbeat signal and label
         """
-        assert idx < self.__len__()  # make sure we're not out of bounds
+        assert idx < self.__len__(), \
+            f"index {idx} out of bounds for dataset of length {self.__len__()}"
         if not self.in_memory:
             running_count = 0
             for file, length in self.lengths.items():
@@ -110,7 +113,34 @@ class ECGDataset(Dataset):
         return self.y
 
 
-def one_hot_encode(label, classes=["N", "S", "V", "F", "Q"]):
+class ECGInferenceSet(Dataset):
+    """ Dataset class for inference.
+
+    Args:
+        data (numpy.ndarray): array of heartbeats with shape (num_samples, num_channels, signal_length)
+        item_transform (Callable, optional): item transform. Defaults to None.
+    """
+
+    def __init__(self, data, item_transform) -> None:
+        super().__init__()
+        self.data = data
+        if isinstance(self.data, np.ndarray):
+            self.data = torch.from_numpy(self.data)
+        self.item_transform = item_transform
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        assert idx < self.__len__(), \
+            f"index {idx} out of bounds for dataset of length {self.__len__()}"
+        heartbeat = self.data[idx]
+        heartbeat = self.item_transform(
+            heartbeat) if self.item_transform else heartbeat
+        return heartbeat
+
+
+def one_hot_encode(label, classes=None):
     """Performs one-hot encoding on a label.
 
     Args:
@@ -120,10 +150,12 @@ def one_hot_encode(label, classes=["N", "S", "V", "F", "Q"]):
     Returns:
         torch.Tensor: one-hot encoded label
     """
+    if classes is none:
+        classes = ["N", "S", "V", "F", "Q"]
     return torch.eye(len(classes))[classes.index(label)]
 
 
-def one_hot_decode(label, classes=["N", "S", "V", "F", "Q"]):
+def one_hot_decode(label, classes=None):
     """Decodes a one-hot encoded label.
 
     Args:
@@ -133,16 +165,16 @@ def one_hot_decode(label, classes=["N", "S", "V", "F", "Q"]):
     Returns:
         str: decoded label
     """
+    if classes is None:
+        classes = ["N", "S", "V", "F", "Q"]
     return classes[label.argmax()]
 
 
 def noise_at_frequencies(
-    hb,
-    frequencies_distribution={
-        "breathing": ([1/18, 1/12], [1/5, 1/3])
-    },
-    fs=360
-):
+    hb: np.ndarray,
+    frequencies_distribution=None,
+    fs: int = 360
+) -> np.ndarray:
     """Generates noise at specified frequencies and adds it to a heartbeat signal.
 
     Args:
@@ -157,7 +189,11 @@ def noise_at_frequencies(
         noise_at_frequencies_tensor for the torch.Tensor version
     """
     noise = np.zeros(hb.shape)
-    for (source, (freq_range, amp_range)) in frequencies_distribution.items():
+    if frequencies_distribution is None:
+        frequencies_distribution = {
+            "breathing": ([1/18, 1/12], [1/5, 1/3])
+        }
+    for (_, (freq_range, amp_range)) in frequencies_distribution.items():
         freq = np.random.uniform(*freq_range)
         amp = np.random.uniform(*amp_range)
         phase = np.random.uniform(0, 2 * np.pi)
@@ -168,22 +204,26 @@ def noise_at_frequencies(
 
 def noise_at_frequencies_tensor(
     hb: torch.Tensor,
-    frequencies_distribution={
-        "breathing": ([1/18, 1/12], [1/5, 1/3])
-    },
-    fs=360
-):
+    frequencies_distribution=None,
+    fs: int = 360
+) -> torch.Tensor:
     """Generates noise at specified frequencies and adds it to a heartbeat signal.
 
     Args:
         hb (torch.Tensor): heartbeat signal
-        frequencies_distribution (dict, optional): distributions of noise frequencies and amplitudes. The distribution is assumed to be uniform. Defaults to { "breathing": ([1/18, 1/12], [1/5, 1/3]) }.
+        frequencies_distribution (dict, optional): distributions of noise frequencies and amplitudes.
+            The distribution is assumed to be uniform.
+            Defaults to { "breathing": ([1/18, 1/12], [1/5, 1/3]) }.
         fs (int, optional): sampling rate. Defaults to 360.
 
     Returns:
         torch.tensor: augmented heartbeat signal
     """
     noise = torch.zeros(hb.shape)
+    if frequencies_distribution is None:
+        frequencies_distribution = {
+            "breathing": ([1/18, 1/12], [1/5, 1/3])
+        }
     for (source, (freq_range, amp_range)) in frequencies_distribution.items():
         freq = torch.distributions.uniform.Uniform(*freq_range).sample()
         amp = torch.distributions.uniform.Uniform(*amp_range).sample()
@@ -193,45 +233,59 @@ def noise_at_frequencies_tensor(
     return hb + noise
 
 
-def z_normalise(hb):
+def z_normalise(heartbeat: Union[np.ndarray, torch.Tensor]) -> Union[np.ndarray, torch.Tensor]:
     """Normalises a heartbeat signal to zero mean and unit variance.
 
     Args:
-        hb (np.ndarray): heartbeat signal
+        heartbeat (np.ndarray): heartbeat signal
 
     Returns:
         np.ndarray: normalised heartbeat signal
     """
-    return (hb - hb.mean()) / hb.std()
+    return (heartbeat - heartbeat.mean()) / heartbeat.std()
 
 
-def hb_transform(hb, input_is_tensor=False):
+def hb_transform(
+    heartbeat: Union[np.ndarray, torch.Tensor],
+    add_noise: bool = True
+) -> torch.Tensor:
     """Transforms a heartbeat signal.
 
     Args:
-        hb (np.ndarray): heartbeat signal
+        heartbeat ([np.ndarray | torch.Tensor]): heartbeat signal
         input_is_tensor (bool, optional): whether the input is a tensor. Defaults to False.
 
     Returns:
         torch.tensor: transformed heartbeat signal
     """
-    if not input_is_tensor:
-        hb = torch.from_numpy(hb)
-    hb = noise_at_frequencies_tensor(hb)
-    hb = z_normalise(hb)
-    return hb
+    if isinstance(heartbeat, np.ndarray):
+        heartbeat = torch.from_numpy(heartbeat)
+    if add_noise:
+        heartbeat = noise_at_frequencies_tensor(heartbeat)
+    heartbeat = z_normalise(heartbeat)
+    return heartbeat
 
 
-def label_encode(label, classes=["N", "S", "V", "F", "Q"]):
+def label_encode(
+    label: str,
+    classes: Optional[List] = None
+) -> int:
     """Encodes a label as an integer.
 
     Args:
         label (str): label to encode
         classes (list, optional): class list. Defaults to ["N", "S", "V", "F", "Q"].
 
+    Raises:
+        ValueError: if label is not in classes
+
     Returns:
         int: encoded label
     """
+    if classes is None:
+        classes = ["N", "S", "V", "F", "Q"]
+    if not label in classes:
+        raise ValueError(f"label {label} not in classes {classes}")
     return classes.index(label)
 
 
@@ -241,13 +295,23 @@ class TCN(nn.Module):
     Args:
         input_size (int): The length of the input vector.
         output_size (int): The length of the output vector.
-        num_channels (list): A list of integers, where each integer is the number of channels in a convolutional layer.
+        num_channels (List[int]): A list of integers, where each integer
+        is the number of channels in a convolutional layer.
         kernel_size (int): The size of the kernel in each convolutional layer.
         dropout (float): The dropout rate to use in each convolutional layer.
         use_skip_connections (bool): Whether to use skip connections between convolutional layers.
     """
-    def __init__(self, input_size, output_size, num_channels, kernel_size, dropout, use_skip_connections=False):
-        super(TCN, self).__init__()
+
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        num_channels: List[int],
+        kernel_size: int,
+        dropout: float,
+        use_skip_connections: bool = False
+    ) -> None:
+        super().__init__()
         self.tcn = TCN_DimensionalityReduced(
             input_size,
             num_channels,
@@ -259,9 +323,19 @@ class TCN(nn.Module):
         self.init_weights()
 
     def init_weights(self):
+        """Initialises the weights of the linear layer.
+        """
         self.linear.weight.data.normal_(0, 0.01)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass of the TCN.
+
+        Args:
+            x (torch.Tensor): input tensor with shape (batch_size, num_channels, signal_length)
+
+        Returns:
+            torch.Tensor: output tensor with shape (batch_size, num_classes)
+        """
         y = self.tcn(x)
         o = self.linear(y[:, :, -1])
         return o
@@ -270,55 +344,72 @@ class TCN(nn.Module):
 class LogInterruptable(Callback):
     """Callback for logging model training progress to a file, for use when resuming training from an interrupted state.
     Args:
-        fn (str): The filename to save the interrupt information to.
+        filename (str): The filename to save the interrupt information to.
     """
-    def __init__(self, fn: str, **kwargs):
+
+    def __init__(self, filename: str, **kwargs):
         super().__init__(**kwargs)
-        self.fn = fn
-        if os.path.exists(self.fn):
-            with open(self.fn, "r") as f:
+        self.filename = filename
+        if os.path.exists(self.filename):
+            with open(self.filename, "r") as f:
                 self.interrupt_info = json.load(f)
         else:
             self.interrupt_info = {
                 "fold": 0,
                 "epoch": 0
             }
-            with open(self.fn, "w") as f:
+            with open(self.filename, "w") as f:
                 json.dump(self.interrupt_info, f, indent=4)
 
     def after_epoch(self):
         self.interrupt_info["epoch"] = self.epoch
-        with open(self.fn, "w") as f:
+        with open(self.filename, "w") as f:
             json.dump(self.interrupt_info, f, indent=4)
 
     def after_fit(self):
         self.interrupt_info["fold"] += 1
         self.interrupt_info["epoch"] = 0
-        with open(self.fn, "w") as f:
+        with open(self.filename, "w") as f:
             json.dump(self.interrupt_info, f, indent=4)
 
+def fastai_precision_score(axis=-1, labels=None, pos_label=1, average='binary', sample_weight=None, zero_division='warn'):
+    return skm_to_fastai(precision_score, axis=axis, labels=labels, pos_label=pos_label, average=average, sample_weight=sample_weight, zero_division=zero_division)
 
-def k_fold_inference(model, test_dl, model_dir="./prototyping/tcn_fold_", weights_fn="best", k=10, target_names=["N", "S", "V", "F", "Q"]):
+def k_fold_inference(
+    model: nn.Module,
+    test_dl: DataLoader,
+    model_dir: str = "./prototyping/tcn_fold_",
+    weights_fn: str = "best",
+    k: int = 10,
+    target_names: Optional[List[str]] = None
+) -> Tuple[List[dict], List[dict]]:
     """Performs inference on a k-fold model
 
     Args:
-        model (nn.Module): the model to perform inference on
+        model (torch.nn.Module): the model to perform inference on
         test_dl (torch.utils.data.DataLoader): dataloader for the test set
         model_dir (str, optional): directory for all the model weights for each fold. Defaults to "./prototyping/tcn_fold_".
         weights_fn (str, optional): filename for weights file, .pth file suffix unnecessary. Defaults to "best".
         k (int, optional): number of folds. Defaults to 10.
-        target_names (list, optional): list of target names. Defaults to ["N", "S", "V", "F", "Q"].
+        target_names (List[str], optional): list of target names. Defaults to ["N", "S", "V", "F", "Q"].
 
     Returns:
         (list, list): model_outputs, classification_reports for each fold
         model_outputs: list of dicts with keys "preds", "proba", and "y"
         classification_reports: list of classification reports for each fold
     """
+    if target_names is None:
+        target_names = ["N", "S", "V", "F", "Q"]
     model_outputs = []
     classification_reports = []
     for fold in range(k):
-        learner = Learner(model=model.cuda(), dls=test_dl,
-                          loss_func=nn.CrossEntropyLoss(), cbs=[MixedPrecision()])
+        if torch.cuda.is_available():
+            model = model.cuda()
+            cbs = [MixedPrecision()]
+        else:
+            cbs = None
+        learner = Learner(model=model, dls=test_dl,
+                        loss_func=nn.CrossEntropyLoss(), cbs=cbs)
         print(model_dir + f"{fold + 1}" + "/" + weights_fn)
         learner.load(model_dir + f"{fold + 1}" + "/" + weights_fn)
         proba, y = learner.get_preds(dl=test_dl)
@@ -339,7 +430,14 @@ def k_fold_inference(model, test_dl, model_dir="./prototyping/tcn_fold_", weight
     return model_outputs, classification_reports
 
 
-def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="macro", legend_key="Fold", show_mean_and_std=True):
+def k_fold_roc_curve(
+    model_outputs: Dict[str, np.ndarray],
+    model_name: str,
+    num_classes: int = 5,
+    average: str = "macro",
+    legend_key: str = "Fold",
+    show_mean_and_std: bool = True
+) -> None:
     """Plots ROC and PRC curves for a k-fold model.
 
     Args:
@@ -353,7 +451,7 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
     Raises:
         NotImplementedError: if average is not ("macro" | "weighted")
     """
-    fig, ax = plt.subplots(2, 1, figsize=(8.27, 11.69), dpi=100) 
+    fig, ax = plt.subplots(2, 1, figsize=(8.27, 11.69), dpi=100)
     tprs, aurocs, tpr_threshes = [], [], []
     fpr_mean = np.linspace(0, 1, 1000)
     precisions, auprcs, recall_threshes = [], [], []
@@ -406,7 +504,7 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
                               class_distributions.reshape(-1, 1))
             auprcs.append(np.array(intermediate_auprcs).T @
                           class_distributions.reshape(-1, 1))
-            aurocs[-1] = aurocs[-1][0] # unpack
+            aurocs[-1] = aurocs[-1][0]  # unpack
             auprcs[-1] = auprcs[-1][0]
             tprs[-1] = tprs[-1].reshape(-1)
             precisions[-1] = precisions[-1].reshape(-1)
@@ -437,7 +535,8 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
         auroc_std = np.std(aurocs)
         ax[0].plot(
             fpr_mean, tpr_mean,
-            label=r"Mean ROC (AUC = %0.2f $\pm$ %0.2f)" % (auroc_mean, auroc_std),
+            label=r"Mean ROC (AUC = %0.2f $\pm$ %0.2f)" % (
+                auroc_mean, auroc_std),
             lw=2, alpha=.8
         )
         tpr_std = np.std(tprs, axis=0)
@@ -453,7 +552,8 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
         auprc_std = np.std(auprcs)
         ax[1].plot(
             recall_mean, prec_mean,
-            label=r"Mean PRC (AUC = %0.2f $\pm$ %0.2f)" % (auprc_mean, auprc_std),
+            label=r"Mean PRC (AUC = %0.2f $\pm$ %0.2f)" % (
+                auprc_mean, auprc_std),
             lw=2, alpha=.8
         )
         prec_std = np.std(precisions, axis=0)
@@ -463,12 +563,17 @@ def k_fold_roc_curve(model_outputs, model_name: str, num_classes=5, average="mac
             label=r"$\pm$ 1 std. dev.", color='grey'
         )
 
-    fig.suptitle(f"ROC and PRC Curves for {model_name}")
+    fig.suptitle(f"ROC and PRC Curves for {model_name}, average={average}")
     ax[0].legend()
     ax[1].legend()
     plt.show()
 
-def perturb_to_mean(batched_inputs, batched_cam, step_size=0.25):
+
+def perturb_to_mean(
+    batched_inputs: torch.Tensor,
+    batched_cam: np.ndarray,
+    step_size: float = 0.25
+) -> np.ndarray:
     """Perturbs the signal to the mean based on the GradCAM saliency map and step size.
 
     Args:
@@ -486,7 +591,19 @@ def perturb_to_mean(batched_inputs, batched_cam, step_size=0.25):
     perturbed_signal = perturbed_signal + mean.repeat(360, 1).T.numpy() - diff
     return perturbed_signal
 
-def iterate_perturbations(dataset:ECGDataset, model, target_layer, num_iter:int=10, batch_size=2048, step_size=0.25, save_directory="./models/", save_file_str_format="perturbed_data_{idx}", num_workers=0):
+
+def iterate_perturbations(
+    dataset: ECGDataset,
+    model: nn.Module,
+    target_layer: nn.Module,
+    num_iter: int = 10,
+    batch_size: int = 2048,
+    step_size: float = 0.25,
+    save_directory: str = "./models/",
+    save_file_str_format: str = "perturbed_data_{idx}",
+    num_workers: int = 0,
+    use_cuda: bool = True
+) -> Dict[str, np.ndarray]:
     """Augments the signal based on the GradCAM saliency map.
 
     Args:
@@ -499,21 +616,25 @@ def iterate_perturbations(dataset:ECGDataset, model, target_layer, num_iter:int=
         save_directory (str, optional): directory to save model outputs to. Defaults to "./models/".
         save_file_str_format (str, optional): format for model outputs save file. `idx` represents the iteration number starting from 0. Defaults to "perturbed_data_{idx}".
         num_workers (int, optional): number of workers for the dataloader. Note that persistent_workers is always set to False due to the modification of the dataset object. Defaults to 0.
+        use_cuda (bool, optional): whether to use CUDA. Defaults to True.
 
     Returns:
         dict: model outputs
     """
     model_outputs = []
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=num_workers)
-    with GradCAM1D(model=model, target_layer=target_layer, use_cuda=True) as cam:
+    loader = DataLoader(dataset, batch_size=batch_size,
+                        shuffle=False, pin_memory=True, num_workers=num_workers)
+    with GradCAM1D(model=model, target_layer=target_layer, use_cuda=use_cuda) as cam:
         for idx in tqdm(range(num_iter), position=0, leave=True):
             ys, preds, inputs, outputs, cams = [], [], [], [], []
             for i, (in_tensor, target_tensor) in enumerate(tqdm(loader, position=1, leave=False)):
                 greyscale_cam = cam(in_tensor, target_tensor)
-                perturbed_data = perturb_to_mean(in_tensor.detach(), greyscale_cam, step_size=step_size)
+                perturbed_data = perturb_to_mean(
+                    in_tensor.detach(), greyscale_cam, step_size=step_size)
                 end_idx = min((i + 1) * batch_size, len(dataset.X))
-                dataset.X[i * batch_size:end_idx] = torch.from_numpy(perturbed_data)
-                with torch.no_grad(): # get model outputs on perturbed data from the previous iteration
+                dataset.X[i *
+                          batch_size:end_idx] = torch.from_numpy(perturbed_data)
+                with torch.no_grad():  # get model outputs on perturbed data from the previous iteration
                     output = model(in_tensor.cuda()).cpu().detach()
                     proba = nn.functional.softmax(output, dim=1)
                     pred = proba.argmax(dim=1)
@@ -530,7 +651,8 @@ def iterate_perturbations(dataset:ECGDataset, model, target_layer, num_iter:int=
             cams = np.concatenate(cams)
             if save_file_str_format is not None:
                 np.savez_compressed(
-                    os.path.join(save_directory, save_file_str_format.format(idx=idx)),
+                    os.path.join(save_directory,
+                                 save_file_str_format.format(idx=idx)),
                     inputs=inputs,
                     y=ys,
                     preds=preds,
