@@ -18,7 +18,8 @@ This repository serves as an archive for the AAI1001 project.
 ### Preprocessing
 1. Ensure that the MIT-BIH Arrhythmia Database is in the `./data/` folder as mentioned above.
 2. Available arguments are:
-```usage: preprocessing.py [-h] [--mitdb_path MITDB_PATH] [--split_ratio SPLIT_RATIO]
+```py
+usage: preprocessing.py [-h] [--mitdb_path MITDB_PATH] [--split_ratio SPLIT_RATIO]
 
 Preprocesses the MIT-BIH Arrhythmia Database
 
@@ -32,7 +33,8 @@ optional arguments:
 
 ### Training
 Available arguments are:
-```usage: training.py [-h] [--batch_size BATCH_SIZE] [--shuffle_train SHUFFLE_TRAIN] [--pin_memory PIN_MEMORY]
+```py
+usage: training.py [-h] [--batch_size BATCH_SIZE] [--shuffle_train SHUFFLE_TRAIN] [--pin_memory PIN_MEMORY]
                    [--num_workers NUM_WORKERS] [--persistent_workers PERSISTENT_WORKERS] [--model_dir MODEL_DIR]
                    [--num_splits NUM_SPLITS]
 
@@ -58,7 +60,8 @@ optional arguments:
 
 ### Testing
 Available arguments are:
-```usage: testing.py [-h] [--batch_size BATCH_SIZE] [--pin_memory PIN_MEMORY] [--model_dir MODEL_DIR]
+```py
+usage: testing.py [-h] [--batch_size BATCH_SIZE] [--pin_memory PIN_MEMORY] [--model_dir MODEL_DIR]
 
 Model testing metrics
 
@@ -74,7 +77,8 @@ optional arguments:
 
 ### Explainability Metrics
 Available arguments are:
-```usage: explainability.py [-h] [--model_dir MODEL_DIR] [--num_iter NUM_ITER] [--batch_size BATCH_SIZE]
+```py
+usage: explainability.py [-h] [--model_dir MODEL_DIR] [--num_iter NUM_ITER] [--batch_size BATCH_SIZE]
                          [--step_size STEP_SIZE] [--save_directory SAVE_DIRECTORY] [--use_cuda USE_CUDA]
 
 Explainability Metrics
