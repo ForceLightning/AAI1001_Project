@@ -258,7 +258,8 @@ def model_predict(
             cams: Grad-CAM heatmap for each heartbeat, shape (num_samples, signal_length)
     """
     use_cuda = torch.cuda.is_available() # check if GPU exists
-    loader = DataLoader(dataset, batch_size=1024,
+    batch_size, _ = get_memory_usage(model, 15, use_cuda=use_cuda)
+    loader = DataLoader(dataset, batch_size=batch_size,
                         shuffle=False, pin_memory=True)
     with GradCAM1D(model=model, target_layer=target_layer, use_cuda=use_cuda) as cam:
         preds, probas, cams = [], [], []

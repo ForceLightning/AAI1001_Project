@@ -12,3 +12,4 @@ torch==2.0.1+cu118
 torchvision==0.15.2
 fastai==2.7.12
 grad-cam==1.4.8
+psutil==5.9.5

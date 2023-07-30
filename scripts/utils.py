@@ -4,6 +4,8 @@ import os
 import json
 from typing import Callable, Tuple, Union, Optional, List, Dict
 
+import torchinfo
+
 from TCN.TCN.tcn import TCN_DimensionalityReduced
 from scripts.GradCAM1D import GradCAM as GradCAM1D
 
@@ -11,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
+import psutil
 from tqdm.auto import tqdm
 
 import torch
@@ -372,8 +375,10 @@ class LogInterruptable(Callback):
         with open(self.filename, "w") as f:
             json.dump(self.interrupt_info, f, indent=4)
 
+
 def fastai_precision_score(axis=-1, labels=None, pos_label=1, average='binary', sample_weight=None, zero_division='warn'):
     return skm_to_fastai(precision_score, axis=axis, labels=labels, pos_label=pos_label, average=average, sample_weight=sample_weight, zero_division=zero_division)
+
 
 def k_fold_inference(
     model: nn.Module,
@@ -409,7 +414,7 @@ def k_fold_inference(
         else:
             cbs = None
         learner = Learner(model=model, dls=test_dl,
-                        loss_func=nn.CrossEntropyLoss(), cbs=cbs)
+                          loss_func=nn.CrossEntropyLoss(), cbs=cbs)
         print(model_dir + f"{fold + 1}" + "/" + weights_fn)
         learner.load(model_dir + f"{fold + 1}" + "/" + weights_fn)
         proba, y = learner.get_preds(dl=test_dl)
@@ -673,3 +678,45 @@ def iterate_perturbations(
                 })
     # loader._iterator._shutdown_workers()
     return model_outputs
+
+
+def get_memory_usage(
+    model: nn.Module,
+    max_log2_batch_size: int = 15,
+    use_cuda: bool = True
+) -> Tuple[int, float]:
+    MEMORY_AVAILBLE = psutil.virtual_memory().available
+    if use_cuda and torch.cuda.is_available():
+        device = torch.device("cuda")
+        model = model.cuda(device)
+        MEMORY_AVAILBLE = torch.cuda.get_device_properties(0).total_memory
+    else:
+        model = model.cpu()
+
+    def _mem_usage_in_mb(model, input_size):
+        summary = torchinfo.summary(model, input_size=input_size, verbose=0)
+        total_bytes = summary.total_input + \
+            summary.total_output_bytes + summary.total_param_bytes
+        total_mb = summary.to_megabytes(total_bytes)
+        return total_bytes, total_mb
+
+    batch_size, total_mb = None, None
+    for i in tqdm(range(max_log2_batch_size)):
+        batch_size = 2 ** i
+        total_bytes = None
+        try:
+            total_bytes, _ = _mem_usage_in_mb(
+                model, input_size=(batch_size, 360))
+            torch.cuda.empty_cache()
+        except RuntimeError:
+            batch_size = batch_size // 2
+            total_bytes, total_mb = _mem_usage_in_mb(
+                model, input_size=(batch_size, 360))
+            break
+        if total_bytes > MEMORY_AVAILBLE:
+            batch_size = batch_size // 2
+            total_bytes, total_mb = _mem_usage_in_mb(
+                model, input_size=(batch_size, 360))
+            break
+    torch.cuda.empty_cache()
+    return batch_size, total_mb
