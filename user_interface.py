@@ -52,7 +52,7 @@ def toggle_layout():
         layout_1.pack_forget()
         layout_2.pack()
 
-
+#landing page
 def init_layout_1(parent):
     # label - top centre of the window
     label = tk.Label(parent, text="Electrocardiogram")
@@ -85,7 +85,7 @@ def init_layout_1(parent):
 
     return data_entry
 
-
+#results page
 def init_layout_2(parent):
     # label - top centre of the window
     label = tk.Label(parent, text="Electrocardiogram Result")
@@ -120,7 +120,7 @@ def init_layout_2(parent):
     return graph_frame
 
 
-def plot_graph(data):
+def plot_graph(proba, cam):
     # * Possibly take in 2 numpy.ndarray rather than just
     # * data (for the heartbeat and the cam)
     # * alternatively, take in an index and
@@ -129,12 +129,12 @@ def plot_graph(data):
     # * using the global dataset variable
     toggle_layout()
 
-    x_values = list(range(1, len(data) + 1))
-    y_values = data
+    x_values = list(range(1, len(proba) + 1))
+    y_values = proba
 
     fig, ax = plt.subplots()
     # Possibly use the following line to plot the graph
-    # plot_explainability(data, cam, fig, ax)
+    plot_explainability(proba, cam, fig, ax)
     # see below for the function definition
     ax.plot(x_values, y_values, marker='o')
     ax.set_xlabel('Amplitude')
@@ -217,6 +217,9 @@ def process_data():
     dataset = ECGInferenceSet(heartbeats, partial(
         hb_transform, add_noise=False))
 
+    proba, cam = model_predict(model, target_layer)
+
+    plot_graph(proba,cam)
     # data = data_entry.get()
     # try:
     #     data_list = [float(x) for x in data.split(',')]
@@ -286,7 +289,11 @@ if __name__ == "__main__":
     graph_frame = init_layout_2(layout_2)
 
     # TODO : load model here
-    # model, target_layer = model_load()
+    file_path = os.path.abspath(__file__)
+    folder_path = os.path.dirname(file_path)
+    file_name = folder_path + "/models/prototyping6/tcn_fold_10/best.pth" 
+
+    model, target_layer = model_load(model_path=file_name)
 
     # TODO : call model_predict in/ together with plotgraph, and change layout_2 accordingly
     # proba, cams = model_predict(model, target_layer)
