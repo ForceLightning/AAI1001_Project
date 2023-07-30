@@ -102,14 +102,17 @@ def init_layout_2(parent):
 
     # children
     graph_frame = ttk.Frame(pred_holder)
+    graph_explain_frame = ttk.Frame(pred_holder)
+
     # graph_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
     graph_frame.grid(row=1, column=0)
+    graph_explain_frame.grid(row=1, column=1)
 
     text_prediction = tk.Text(pred_holder)
     text_prediction.insert(tk.END, "Your heartbeat was predicted to have contained : {}-type heartbeats, at a {}% accuracy.".format(
         "REPLACE THIS WITH PREDICTED HEARTBEAT", "arbitrary number"))
     # text_prediction.pack()
-    text_prediction.grid(row=1, column=1)
+    text_prediction.grid(row=1, column=2)
 
     # TODO : insert a table showing all predictions and all accuracies
 
@@ -117,7 +120,7 @@ def init_layout_2(parent):
     return_btn = tk.Button(parent, text="Return", command=toggle_layout)
     return_btn.pack()
 
-    return graph_frame
+    return graph_frame, graph_explain_frame
 
 
 def plot_graph(proba, cam):
@@ -130,13 +133,55 @@ def plot_graph(proba, cam):
     toggle_layout()
 
     x_values = list(range(1, len(proba) + 1))
-    y_values = proba
+    #various y values of the different types of heartbeats
+    N_values = proba[:,0]
+    S_values = proba[:,1]
+    V_values = proba[:,2]
+    F_values = proba[:,3]
+    Q_values = proba[:,4]
+    #get the most likely type of heartbeat each heartbeat is 
+    highest_values = np.max(proba, axis=1)
+
+    #print("NVALUES")
+    #print(N_values)
+
+    #y_values = proba
+    #print("xVALUES")
+    #print(x_values)
 
     fig, ax = plt.subplots()
-    # Possibly use the following line to plot the graph
-    plot_explainability(proba, cam, fig, ax)
+    
+    # Possibly use the following line to plot the graph, TODO: not finished, stuck on plat_explainability
+    #fig_explain, ax_explain = plt.subplots()
+    #plot_explainability(dataset, cam, fig_explain, ax_explain)
+    #canvas_explain = FigureCanvasTkAgg(fig_explain, master=graph_explain_frame)
+    #canvas_explain.get_tk_widget().pack(fill=tk.BOTH, expand=True)
     # see below for the function definition
-    ax.plot(x_values, y_values, marker='o')
+
+    # Get the number of columns in the input array
+    num_columns = proba.shape[1]
+
+    # Create a color map for differentiating plots
+    color_map = plt.cm.get_cmap('tab10')
+
+    # Plot each column with a different color
+    for j in range(num_columns):
+        column_data = proba[:, j]
+        color = color_map(j)  # Get a different color for each column
+        ax.plot(column_data, label=f"Column {j}", color=color)
+
+    # Plot the highest value for each row with a marker
+    #ax.scatter(range(len(highest_values)), highest_values, color='black', marker='o', label="Highest Value")
+
+
+    #ax.plot(x_values, N_values)
+    #ax.plot(x_values, S_values)
+    #ax.plot(x_values, V_values)
+    #ax.plot(x_values, F_values)
+    #ax.plot(x_values, Q_values)
+    
+    #ax.plot(x_values, highest_values)
+
     ax.set_xlabel('Amplitude')
     ax.set_ylabel('Time')
     ax.set_title('Electrocardiogram Results')
@@ -219,6 +264,10 @@ def process_data():
 
     proba, cam = model_predict(model, target_layer)
 
+    #print("PROBA : ")
+    #print(proba)
+    #print("CAM : ")
+    #print(cam)
     plot_graph(proba,cam)
     # data = data_entry.get()
     # try:
@@ -287,7 +336,7 @@ def model_predict(
 if __name__ == "__main__":
     window, layout_1, layout_2 = init_window()
     data_entry = init_layout_1(layout_1)
-    graph_frame = init_layout_2(layout_2)
+    graph_frame, graph_explain_frame= init_layout_2(layout_2)
 
     # TODO : load model here
     file_path = os.path.abspath(__file__)
