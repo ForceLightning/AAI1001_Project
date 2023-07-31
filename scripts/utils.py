@@ -6,6 +6,7 @@ from typing import Callable, Tuple, Union, Optional, List, Dict
 
 import torchinfo
 
+sys.path.append("../" + os.path.dirname(os.path.realpath(__file__)))
 from scripts.GradCAM1D import GradCAM as GradCAM1D  
 from TCN.TCN.tcn import TCN_DimensionalityReduced
 
@@ -31,9 +32,6 @@ from fastai.metrics import accuracy, Precision, Recall, F1Score, RocAuc
 from fastai.callback.core import Callback
 from fastai.callback.fp16 import MixedPrecision
 from fastai.metrics import skm_to_fastai
-
-sys.path.append("../" + os.path.dirname(os.path.realpath(__file__)))
-
 
 class ECGDataset(Dataset):
     """ECG Dataset class.
@@ -225,11 +223,13 @@ def noise_at_frequencies_tensor(
     noise = torch.zeros(hb.shape)
     if frequencies_distribution is None:
         frequencies_distribution = {
-            "breathing": ([1/18, 1/12], [1/5, 1/3])
+            "breathing": ([0.2, 0.3], [1/5, 1/3])
         }
     for (source, (freq_range, amp_range)) in frequencies_distribution.items():
         freq = torch.distributions.uniform.Uniform(*freq_range).sample()
         amp = torch.distributions.uniform.Uniform(*amp_range).sample()
+        signal_range = hb.max() - hb.min()
+        amp *= signal_range if signal_range > 0.1 else 1
         phase = torch.distributions.uniform.Uniform(0, 2 * np.pi).sample()
         noise += amp * torch.sin(2 * np.pi * freq *
                                  torch.arange(hb.shape[0]) / fs + phase)

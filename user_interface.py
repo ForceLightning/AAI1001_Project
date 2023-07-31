@@ -297,7 +297,7 @@ def model_load(
 def model_predict(
     model: torch.nn.Module,
     target_layer: torch.nn.Module
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Predicts the heartbeat types and generates the Grad-CAM heatmap for each heartbeat.
 
     Args:
@@ -330,7 +330,7 @@ def model_predict(
         preds = np.concatenate(preds)
         cams = np.concatenate(cams)
         probas = np.concatenate(probas)
-    return probas, cams
+    return probas, preds, cams
 
 
 if __name__ == "__main__":
