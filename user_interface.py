@@ -24,20 +24,21 @@ from scripts.GradCAM1D import GradCAM as GradCAM1D
 b_toggle_layout = True
 # integer, for use when displaying the heartbeats
 i_index = 0
+#global data variables
 dataset = None
 model_outputs = None
-
 
 def init_window():
     # init window
     window = tk.Tk()
     window.title("Electrocardiogram")
 
-    layout_1 = tk.LabelFrame(window, text="Layout 1 (Landing)", padx=5, pady=5)
-    layout_1.pack()
-    layout_2 = tk.LabelFrame(
-        window, text="Layout 2 (Prediction)", padx=5, pady=5)
+    #init layout
+    layout_1 = tk.LabelFrame(window)
+    layout_1.pack(padx=10, pady=10)
+    layout_2 = tk.LabelFrame(window)
 
+    #return to be referenced and edited later
     return window, layout_1, layout_2
 
 #for use to toggle between landing page and display page
@@ -49,13 +50,14 @@ def toggle_layout():
 
     # change layout accordingly
     if b_toggle_layout is True:
-        layout_1.pack()
+        layout_1.pack(padx=10, pady=10)
         layout_2.pack_forget()
     else:
         layout_1.pack_forget()
-        layout_2.pack()
+        layout_2.pack(padx=10, pady=10)
 
 def previous_beat():    
+    #decrement index and update layout
     global i_index
     i_index -= 1
     i_index %= len(dataset)
@@ -63,6 +65,7 @@ def previous_beat():
     return
 
 def next_beat():
+    #increment index and update layout
     global i_index
     i_index += 1
     i_index %= len(dataset)
@@ -77,31 +80,10 @@ def init_layout_1(parent):
     label.config(font=("Courier", 32))
     label.pack()
 
-    # buttons
-    btn_select = tk.Button(
-        parent, text="Select ECG File", command=process_data)
+    # button to prompt user to select ECG file
+    btn_select = tk.Button(parent, text="Select ECG File", command=process_data)
     btn_select.pack(pady=20)
 
-    # Setting of Screen Width
-    user32 = ctypes.windll.user32
-    screen_width = user32.GetSystemMetrics(0)
-    screen_height = user32.GetSystemMetrics(1)
-    window_width = int(screen_width * 0.8)
-    window_height = int(screen_height * 0.8)
-    window.geometry(f"{window_width}x{window_height}")
-    input_frame = ttk.Frame(parent)
-    input_frame.pack(padx=10, pady=10)
-
-    # THIS PART IS FOR TESTING ONLY (TO SEE IF GRAPH CAN BE SHOWN)
-    data_label = ttk.Label(input_frame, text="Enter data (comma-separated):")
-    data_label.pack(side=tk.LEFT)
-    data_entry = ttk.Entry(input_frame, width=30)
-    data_entry.pack(side=tk.LEFT)
-    plot_button = ttk.Button(
-        input_frame, text="Plot Graph", command=process_data)
-    plot_button.pack(side=tk.LEFT)
-
-    return data_entry
 
 #results page
 def init_layout_2(parent):
@@ -110,28 +92,24 @@ def init_layout_2(parent):
     label.config(font=("Courier", 32))
     label.pack()
 
-    # Where the graph will appear
-    graph_label = tk.Label(parent, text="Here is where the graph will appear")
-    graph_label.pack()
-
     # holder in hireachy
     pred_holder = ttk.Frame(parent)
     pred_holder.pack()
 
-    # children
-   
-    #graph, heartbeat + explainability?, left side
-    graph_frame = ttk.Frame(pred_holder)
-    graph_frame.grid(row=0, column=0)
-    
-    #text explaination, right side
-    text_prediction = tk.Text(pred_holder, height=2)
-    #text_prediction.delete("start","end")
-    text_prediction.insert(tk.END, f"Heartbeat {i_index} out of {0}.") #x = max value of dataset
-    text_prediction.insert(tk.END, "Your heartbeat was predicted to have contained : {}-type heartbeats, at a {}% confidence.".format(
-        "REPLACE THIS WITH PREDICTED HEARTBEAT", "arbitrary number"))
-    # text_prediction.pack()
+    # children to pred holder
+    graph_holders = ttk.Frame(pred_holder)
+    graph_holders.grid(row=0, column=0)
 
+    #children to graph_holder
+    #graph, heartbeat + explainability, left side
+    graph_frame = ttk.Frame(graph_holders)
+    graph_frame.grid(row=0, column=0, padx=5, pady=5)
+    #graph table, table of predictions and confidence levels, right side
+    graph_proba_frame = ttk.Frame(graph_holders)
+    graph_proba_frame.grid(row=0, column=1, padx=5, pady=5)
+
+    #text explaination
+    text_prediction = tk.Text(pred_holder, height=3)
     text_prediction.grid(row=1, column=0)
 
     #holder for left/right buttons
@@ -142,25 +120,21 @@ def init_layout_2(parent):
 
     #left/right buttons, to access previous/next heartbeat
     btn_left = tk.Button(button_holder, text="Previous Beat", command=previous_beat)    
-    btn_left.grid(row=1, column=0)
+    btn_left.grid(row=1, column=0, padx=5, pady=5)
     btn_right = tk.Button(button_holder, text="Next Beat", command=next_beat)
-    btn_right.grid(row=1, column=1)
-
-    # TODO : insert a table showing all predictions and all accuracies
-
+    btn_right.grid(row=1, column=1, padx=5, pady=5)
 
     # button to return to previous page
     return_btn = tk.Button(pred_holder, text="Return", command=toggle_layout)
-    #return_btn.pack()
-    return_btn.grid(row=3,column=0)
+    return_btn.grid(row=3,column=0, padx=5, pady=5)
 
-    return graph_frame, text_prediction
+    return graph_frame, text_prediction, graph_proba_frame
 
 def update_layout_2(index):
     #update graph_frame 
-    plt.close("all")
     fig, ax = plt.subplots()
-    plot_explainability(dataset[index], model_outputs["cams"][index], fig, ax)
+    plt.close("all")
+    plot_explainability(dataset[index].numpy(), model_outputs["cams"][index], fig, ax)
 
     for widget in graph_frame.winfo_children():
         widget.destroy()
@@ -169,96 +143,39 @@ def update_layout_2(index):
     canvas.draw()
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+    #update graph_proba_frame
+    fig_proba, ax_proba = plt.subplots()
+
+    x_values = ["N", "S", "V", "F", "Q"]
+    y_values = model_outputs["probas"][index] * 100
+    plt.bar(x_values, y_values)
+    plt.yticks(np.arange(0, 101, 10))
+    plt.ylim(0, 100)
+    plt.xlabel("Types of Heartbeats")
+    plt.ylabel("Confidence Level (%)")
+
+    for widget in graph_proba_frame.winfo_children():
+        widget.destroy()
+
+    canvas = FigureCanvasTkAgg(fig_proba, master=graph_proba_frame)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    #update text_prediction
     pred = model_outputs["preds"][index]
-    label = one_hot_decode(pred)
+    label = label_decode(int(pred))
     proba = model_outputs["probas"][index][pred]
     proba *= 100
     
-    #update text_prediction
     text_prediction.delete(1.0, tk.END)
-    text_prediction.insert(tk.END, f"Heartbeat {index} out of {len(dataset)}.") #x = max value of dataset
-    text_prediction.insert(tk.END, f"Your heartbeat was predicted to have contained : {label}-type heartbeats, at a {proba:.2f}% confidence.")
+    text_prediction.insert(tk.END, f"Heartbeat {index + 1} of {len(dataset)}.\n") 
+    text_prediction.insert(tk.END, f"This heartbeat was predicted to be a {label}-type heartbeat, with a {proba:.2f}% confidence.")
 
 
-def plot_graph(proba, pred, cam): #TODO: change according maybe
-    # * Possibly take in 2 numpy.ndarray rather than just
-    # * data (for the heartbeat and the cam)
-    # * alternatively, take in an index and
-    # * all model outputs (probas, cams)
-    # * and plot the graph for that index
-    # * using the global dataset variable
-    toggle_layout()
-    
-    x_values = list(range(1, len(proba) + 1))
-    #various y values of the different types of heartbeats
-    N_values = proba[:,0]
-    S_values = proba[:,1]
-    V_values = proba[:,2]
-    F_values = proba[:,3]
-    Q_values = proba[:,4]
-    #get the most likely type of heartbeat each heartbeat is 
-    highest_values = np.max(proba, axis=1)
-
-    #print("NVALUES")
-    #print(N_values)
-
-    #y_values = proba
-    #print("xVALUES")
-    #print(x_values)
-
-    fig, ax = plt.subplots()
-    
-    # Possibly use the following line to plot the graph, TODO: not finished, stuck on plat_explainability
-    #fig_explain, ax_explain = plt.subplots()
-    plot_explainability(dataset[i_index], cam[i_index], fig, ax)
-    #canvas_explain = FigureCanvasTkAgg(fig_explain, master=graph_explain_frame)
-    #canvas_explain.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-    # see below for the function definition
-
-    # Get the number of columns in the input array
-    #num_columns = proba.shape[1]
-
-    # Create a color map for differentiating plots
-    #color_map = plt.cm.get_cmap('tab10')
-
-    # Plot each column with a different color
-    #for j in range(num_columns):
-    #    column_data = proba[:, j]
-    #    color = color_map(j)  # Get a different color for each column
-    #    ax.plot(column_data, label=f"Column {j}", color=color)
-
-    # Plot the highest value for each row with a marker
-    #ax.scatter(range(len(highest_values)), highest_values, color='black', marker='o', label="Highest Value")
-
-    #print(len(dataset.__getitem__(5).numpy()))
-    #print(dataset.__getitem__(5).numpy())
-    
-    #x_values = list(range(1, len(dataset.__getitem__(i_index).numpy()) + 1))
-    #y_values = dataset.__getitem__(i_index).numpy()
-    #ax.plot(x_values, y_values)
-
-    #TODO : change accordingly
-    #ax.set_xlabel('Amplitude')
-    #ax.set_ylabel('Time')
-    #ax.set_title('Electrocardiogram Results')
-    
-    pred = model_outputs["preds"][i_index]
-    label = one_hot_decode(pred)
-    proba = model_outputs["probas"][i_index][pred]
-    proba *= 100
-    
-    #update text_prediction
-    text_prediction.delete(1.0, tk.END)
-    text_prediction.insert(tk.END, f"Heartbeat {i_index} out of {len(dataset)}.") #x = max value of dataset
-    text_prediction.insert(tk.END, f"Your heartbeat was predicted to have contained : {label}-type heartbeats, at a {proba:.2f}% confidence.")
-
-    #???? maybe no need
-    for widget in graph_frame.winfo_children():
-        widget.destroy()
-
-    canvas = FigureCanvasTkAgg(fig, master=graph_frame)
-    canvas.draw()
-    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+def plot_graph():
+    #change to results page and update it
+    toggle_layout()   
+    update_layout_2(i_index)
 
 
 def plot_explainability(heartbeat: np.ndarray, cam: np.ndarray, fig: plt.Figure, ax: plt.Axes, length_time: float = 1.0, fs: int = 360, cmap: str = "inferno"):
@@ -292,23 +209,6 @@ def plot_explainability(heartbeat: np.ndarray, cam: np.ndarray, fig: plt.Figure,
 
 
 def process_data():
-    # TODO : check on data entry method
-
-    ########## This is the part that reads the csv data but I am not sure which value to take for plotting##############
-    # file_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
-    # if not file_path:
-    #     return
-
-    # try:
-    #     df = pd.read_csv(file_path)
-    #     if 'Value' in df.columns:
-    #         data_list = df['Value'].tolist()
-    #         plot_graph(data_list)
-    #     else:
-    #         print("Error: CSV file must contain a column named 'Value' with the data.")
-    # except Exception as e:
-    #     print("Error reading the CSV file:", e)
-
     file_path = filedialog.askopenfilename(
         filetypes=[("WFDB Data Files", "*.dat")])
     if not file_path:
@@ -325,13 +225,15 @@ def process_data():
         heartbeats.append(sample.p_signal[loc - 180:loc + 180, 0])
     heartbeats = np.array(heartbeats)
 
-    #create global dataset for global reference
+    #create global dataset for referencing
     global dataset
     dataset = ECGInferenceSet(heartbeats, partial(
         hb_transform, add_noise=False))
 
     #calling predict and getting results
     proba, pred, cam = model_predict(model, target_layer)
+    
+    #create global outputs for referencing
     global model_outputs
     model_outputs = {
         "probas": proba,
@@ -339,16 +241,8 @@ def process_data():
         "cams": cam
     }
 
-    #plot graph
-    plot_graph(proba, pred, cam)
-    # data = data_entry.get()
-    # try:
-    #     data_list = [float(x) for x in data.split(',')]
-    #     plot_graph(data_list)
-    # except ValueError:
-    #     print("Invalid input. Please enter a comma-separated list of numbers.")
-
-    #return proba, pred, cam 
+    #activate results page and update it
+    plot_graph()
 
 
 def model_load(
@@ -408,18 +302,17 @@ def model_predict(
 
 
 if __name__ == "__main__":
+    #init GUI
     window, layout_1, layout_2 = init_window()
-    data_entry = init_layout_1(layout_1)
-    graph_frame, text_prediction = init_layout_2(layout_2)
+    init_layout_1(layout_1)
+    graph_frame, text_prediction, graph_proba_frame = init_layout_2(layout_2)
 
-    # TODO : load model here
+    #loading model here
     file_path = os.path.abspath(__file__)
     folder_path = os.path.dirname(file_path)
     file_name = folder_path + "/models/prototyping6/tcn_fold_10/best.pth" 
-
     model, target_layer = model_load(model_path=file_name)
-
-    # TODO : call model_predict in/ together with plotgraph, and change layout_2 accordingly
-    # proba, cams = model_predict(model, target_layer)
-
+    
+    #tkinter main loop
+    window.protocol("WM_DELETE_WINDOW", lambda root=window:root.destroy())
     window.mainloop()
