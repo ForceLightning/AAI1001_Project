@@ -163,13 +163,13 @@ def update_layout_2(index):
 
     #update text_prediction
     pred = model_outputs["preds"][index]
-    label = label_decode(int(pred))
+    label = label_decode(int(pred), ["Non-Ectopic", "Supraventricular Ectopic", "Ventricular Ectopic", "Fusion", "Unknown"])
     proba = model_outputs["probas"][index][pred]
     proba *= 100
     
     text_prediction.delete(1.0, tk.END)
     text_prediction.insert(tk.END, f"Heartbeat {index + 1} of {len(dataset)}.\n") 
-    text_prediction.insert(tk.END, f"This heartbeat was predicted to be a {label}-type heartbeat, with a {proba:.2f}% confidence.")
+    text_prediction.insert(tk.END, f"This heartbeat was predicted to be {label}, with a {proba:.2f}% confidence.")
 
 
 def plot_graph():
