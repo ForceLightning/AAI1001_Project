@@ -25,6 +25,7 @@ b_toggle_layout = True
 # integer, for use when displaying the heartbeats
 i_index = 0
 dataset = None
+model_outputs = None
 
 
 def init_window():
@@ -157,18 +158,26 @@ def init_layout_2(parent):
 
 def update_layout_2(index):
     #update graph_frame 
+    plt.close("all")
     fig, ax = plt.subplots()
-    plot_explainability(dataset[index], cam[index], fig, ax)
+    plot_explainability(dataset[index], model_outputs["cams"][index], fig, ax)
+
+    for widget in graph_frame.winfo_children():
+        widget.destroy()
 
     canvas = FigureCanvasTkAgg(fig, master=graph_frame)
     canvas.draw()
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+    pred = model_outputs["preds"][index]
+    label = one_hot_decode(pred)
+    proba = model_outputs["probas"][index][pred]
+    proba *= 100
+    
     #update text_prediction
     text_prediction.delete(1.0, tk.END)
-    text_prediction.insert(tk.END, f"Heartbeat {index} out of {0}.") #x = max value of dataset
-    text_prediction.insert(tk.END, "Your heartbeat was predicted to have contained : {}-type heartbeats, at a {}% confidence.".format(
-        "REPLACE THIS WITH PREDICTED HEARTBEAT", "arbitrary number"))
+    text_prediction.insert(tk.END, f"Heartbeat {index} out of {len(dataset)}.") #x = max value of dataset
+    text_prediction.insert(tk.END, f"Your heartbeat was predicted to have contained : {label}-type heartbeats, at a {proba:.2f}% confidence.")
 
 
 def plot_graph(proba, pred, cam): #TODO: change according maybe
@@ -201,7 +210,7 @@ def plot_graph(proba, pred, cam): #TODO: change according maybe
     
     # Possibly use the following line to plot the graph, TODO: not finished, stuck on plat_explainability
     #fig_explain, ax_explain = plt.subplots()
-    plot_explainability(dataset[i_index], cam, fig, ax)
+    plot_explainability(dataset[i_index], cam[i_index], fig, ax)
     #canvas_explain = FigureCanvasTkAgg(fig_explain, master=graph_explain_frame)
     #canvas_explain.get_tk_widget().pack(fill=tk.BOTH, expand=True)
     # see below for the function definition
@@ -232,6 +241,16 @@ def plot_graph(proba, pred, cam): #TODO: change according maybe
     #ax.set_xlabel('Amplitude')
     #ax.set_ylabel('Time')
     #ax.set_title('Electrocardiogram Results')
+    
+    pred = model_outputs["preds"][i_index]
+    label = one_hot_decode(pred)
+    proba = model_outputs["probas"][i_index][pred]
+    proba *= 100
+    
+    #update text_prediction
+    text_prediction.delete(1.0, tk.END)
+    text_prediction.insert(tk.END, f"Heartbeat {i_index} out of {len(dataset)}.") #x = max value of dataset
+    text_prediction.insert(tk.END, f"Your heartbeat was predicted to have contained : {label}-type heartbeats, at a {proba:.2f}% confidence.")
 
     #???? maybe no need
     for widget in graph_frame.winfo_children():
@@ -313,6 +332,12 @@ def process_data():
 
     #calling predict and getting results
     proba, pred, cam = model_predict(model, target_layer)
+    global model_outputs
+    model_outputs = {
+        "probas": proba,
+        "preds": pred,
+        "cams": cam
+    }
 
     #plot graph
     plot_graph(proba, pred, cam)
