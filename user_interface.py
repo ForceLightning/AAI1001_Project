@@ -22,6 +22,8 @@ from scripts.GradCAM1D import GradCAM as GradCAM1D
 
 # boolean, True - show layout 1, False - show layout 2
 b_toggle_layout = True
+# integer, for use when displaying the heartbeats
+i_index = 0
 dataset = None
 
 
@@ -37,7 +39,7 @@ def init_window():
 
     return window, layout_1, layout_2
 
-
+#for use to toggle between landing page and display page
 def toggle_layout():
     # get global boolean
     global b_toggle_layout
@@ -51,6 +53,21 @@ def toggle_layout():
     else:
         layout_1.pack_forget()
         layout_2.pack()
+
+def previous_beat():    
+    global i_index
+    i_index -= 1
+    i_index %= len(dataset)
+    update_layout_2(i_index)
+    return
+
+def next_beat():
+    global i_index
+    i_index += 1
+    i_index %= len(dataset)
+    update_layout_2(i_index)
+    return
+
 
 #landing page
 def init_layout_1(parent):
@@ -101,29 +118,60 @@ def init_layout_2(parent):
     pred_holder.pack()
 
     # children
+   
+    #graph, heartbeat + explainability?, left side
     graph_frame = ttk.Frame(pred_holder)
-    graph_explain_frame = ttk.Frame(pred_holder)
-
-    # graph_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
-    graph_frame.grid(row=1, column=0)
-    graph_explain_frame.grid(row=1, column=1)
-
-    text_prediction = tk.Text(pred_holder)
-    text_prediction.insert(tk.END, "Your heartbeat was predicted to have contained : {}-type heartbeats, at a {}% accuracy.".format(
+    graph_frame.grid(row=0, column=0)
+    
+    #text explaination, right side
+    text_prediction = tk.Text(pred_holder, height=2)
+    #text_prediction.delete("start","end")
+    text_prediction.insert(tk.END, f"Heartbeat {i_index} out of {0}.") #x = max value of dataset
+    text_prediction.insert(tk.END, "Your heartbeat was predicted to have contained : {}-type heartbeats, at a {}% confidence.".format(
         "REPLACE THIS WITH PREDICTED HEARTBEAT", "arbitrary number"))
     # text_prediction.pack()
-    text_prediction.grid(row=1, column=2)
+
+    text_prediction.grid(row=1, column=0)
+
+    #holder for left/right buttons
+    button_holder = ttk.Frame(pred_holder)
+    #button_holder.pack()
+    button_holder.grid(row=2,column=0)
+    
+
+    #left/right buttons, to access previous/next heartbeat
+    btn_left = tk.Button(button_holder, text="Previous Beat", command=previous_beat)    
+    btn_left.grid(row=1, column=0)
+    btn_right = tk.Button(button_holder, text="Next Beat", command=next_beat)
+    btn_right.grid(row=1, column=1)
 
     # TODO : insert a table showing all predictions and all accuracies
 
+
     # button to return to previous page
-    return_btn = tk.Button(parent, text="Return", command=toggle_layout)
-    return_btn.pack()
+    return_btn = tk.Button(pred_holder, text="Return", command=toggle_layout)
+    #return_btn.pack()
+    return_btn.grid(row=3,column=0)
 
-    return graph_frame, graph_explain_frame
+    return graph_frame, text_prediction
+
+def update_layout_2(index):
+    #update graph_frame 
+    fig, ax = plt.subplots()
+    plot_explainability(dataset[index], cam[index], fig, ax)
+
+    canvas = FigureCanvasTkAgg(fig, master=graph_frame)
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+    #update text_prediction
+    text_prediction.delete(1.0, tk.END)
+    text_prediction.insert(tk.END, f"Heartbeat {index} out of {0}.") #x = max value of dataset
+    text_prediction.insert(tk.END, "Your heartbeat was predicted to have contained : {}-type heartbeats, at a {}% confidence.".format(
+        "REPLACE THIS WITH PREDICTED HEARTBEAT", "arbitrary number"))
 
 
-def plot_graph(proba, cam):
+def plot_graph(proba, pred, cam): #TODO: change according maybe
     # * Possibly take in 2 numpy.ndarray rather than just
     # * data (for the heartbeat and the cam)
     # * alternatively, take in an index and
@@ -131,7 +179,7 @@ def plot_graph(proba, cam):
     # * and plot the graph for that index
     # * using the global dataset variable
     toggle_layout()
-
+    
     x_values = list(range(1, len(proba) + 1))
     #various y values of the different types of heartbeats
     N_values = proba[:,0]
@@ -153,39 +201,39 @@ def plot_graph(proba, cam):
     
     # Possibly use the following line to plot the graph, TODO: not finished, stuck on plat_explainability
     #fig_explain, ax_explain = plt.subplots()
-    #plot_explainability(dataset, cam, fig_explain, ax_explain)
+    plot_explainability(dataset[i_index], cam, fig, ax)
     #canvas_explain = FigureCanvasTkAgg(fig_explain, master=graph_explain_frame)
     #canvas_explain.get_tk_widget().pack(fill=tk.BOTH, expand=True)
     # see below for the function definition
 
     # Get the number of columns in the input array
-    num_columns = proba.shape[1]
+    #num_columns = proba.shape[1]
 
     # Create a color map for differentiating plots
-    color_map = plt.cm.get_cmap('tab10')
+    #color_map = plt.cm.get_cmap('tab10')
 
     # Plot each column with a different color
-    for j in range(num_columns):
-        column_data = proba[:, j]
-        color = color_map(j)  # Get a different color for each column
-        ax.plot(column_data, label=f"Column {j}", color=color)
+    #for j in range(num_columns):
+    #    column_data = proba[:, j]
+    #    color = color_map(j)  # Get a different color for each column
+    #    ax.plot(column_data, label=f"Column {j}", color=color)
 
     # Plot the highest value for each row with a marker
     #ax.scatter(range(len(highest_values)), highest_values, color='black', marker='o', label="Highest Value")
 
-
-    #ax.plot(x_values, N_values)
-    #ax.plot(x_values, S_values)
-    #ax.plot(x_values, V_values)
-    #ax.plot(x_values, F_values)
-    #ax.plot(x_values, Q_values)
+    #print(len(dataset.__getitem__(5).numpy()))
+    #print(dataset.__getitem__(5).numpy())
     
-    #ax.plot(x_values, highest_values)
+    #x_values = list(range(1, len(dataset.__getitem__(i_index).numpy()) + 1))
+    #y_values = dataset.__getitem__(i_index).numpy()
+    #ax.plot(x_values, y_values)
 
-    ax.set_xlabel('Amplitude')
-    ax.set_ylabel('Time')
-    ax.set_title('Electrocardiogram Results')
+    #TODO : change accordingly
+    #ax.set_xlabel('Amplitude')
+    #ax.set_ylabel('Time')
+    #ax.set_title('Electrocardiogram Results')
 
+    #???? maybe no need
     for widget in graph_frame.winfo_children():
         widget.destroy()
 
@@ -258,23 +306,24 @@ def process_data():
         heartbeats.append(sample.p_signal[loc - 180:loc + 180, 0])
     heartbeats = np.array(heartbeats)
 
+    #create global dataset for global reference
     global dataset
     dataset = ECGInferenceSet(heartbeats, partial(
         hb_transform, add_noise=False))
 
-    proba, cam = model_predict(model, target_layer)
+    #calling predict and getting results
+    proba, pred, cam = model_predict(model, target_layer)
 
-    #print("PROBA : ")
-    #print(proba)
-    #print("CAM : ")
-    #print(cam)
-    plot_graph(proba,cam)
+    #plot graph
+    plot_graph(proba, pred, cam)
     # data = data_entry.get()
     # try:
     #     data_list = [float(x) for x in data.split(',')]
     #     plot_graph(data_list)
     # except ValueError:
     #     print("Invalid input. Please enter a comma-separated list of numbers.")
+
+    #return proba, pred, cam 
 
 
 def model_load(
@@ -336,7 +385,7 @@ def model_predict(
 if __name__ == "__main__":
     window, layout_1, layout_2 = init_window()
     data_entry = init_layout_1(layout_1)
-    graph_frame, graph_explain_frame= init_layout_2(layout_2)
+    graph_frame, text_prediction = init_layout_2(layout_2)
 
     # TODO : load model here
     file_path = os.path.abspath(__file__)
