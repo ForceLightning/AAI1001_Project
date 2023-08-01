@@ -3,14 +3,14 @@
 This repository serves as an archive for the AAI1001 project.
 
 ## Requirements
-- CUDA Toolkit 11.8
-- A suitable NVIDIA GPU
-- The MIT-BIH Arrhythmia Database. Folder structure should look like `./data/mit-bih-arrhythmia-database-1.0.0/`
+- [CUDA Toolkit 11.8](https://developer.nvidia.com/cuda-11-8-0-download-archive)
+- A suitable NVIDIA GPU with CUDA compute capability >= 3.5
+- The [MIT-BIH Arrhythmia Database](https://physionet.org/content/mitdb/1.0.0/). Folder structure should look like `./data/mit-bih-arrhythmia-database-1.0.0/`
 
 
 ## Installation
 1. Start by cloning the repository:  
-`git clone git@github.com:ForceLightning/AAI1001_Project.git --recursive`
+`git clone -c core.symlinks=true git@github.com:ForceLightning/AAI1001_Project.git --recursive`
 2. Ensure that the MIT-BIH Arrhythmia Database is in the `./data/` folder as mentioned above.
 3. Install dependencies from `requirements.txt` with `pip install -r requirements.txt`. Modify the `torch` version if necessary.
 
@@ -18,7 +18,7 @@ This repository serves as an archive for the AAI1001 project.
 ### Preprocessing
 1. Ensure that the MIT-BIH Arrhythmia Database is in the `./data/` folder as mentioned above.
 2. Available arguments are:
-```py
+```sh
 usage: preprocessing.py [-h] [--mitdb_path MITDB_PATH] [--split_ratio SPLIT_RATIO]
 
 Preprocesses the MIT-BIH Arrhythmia Database
@@ -33,7 +33,7 @@ optional arguments:
 
 ### Training
 Available arguments are:
-```py
+```sh
 usage: training.py [-h] [--batch_size BATCH_SIZE] [--shuffle_train SHUFFLE_TRAIN] [--pin_memory PIN_MEMORY]
                    [--num_workers NUM_WORKERS] [--persistent_workers PERSISTENT_WORKERS] [--model_dir MODEL_DIR]
                    [--num_splits NUM_SPLITS]
@@ -60,7 +60,7 @@ optional arguments:
 
 ### Testing
 Available arguments are:
-```py
+```sh
 usage: testing.py [-h] [--batch_size BATCH_SIZE] [--pin_memory PIN_MEMORY] [--model_dir MODEL_DIR]
 
 Model testing metrics
@@ -77,7 +77,7 @@ optional arguments:
 
 ### Explainability Metrics
 Available arguments are:
-```py
+```sh
 usage: explainability.py [-h] [--model_dir MODEL_DIR] [--num_iter NUM_ITER] [--batch_size BATCH_SIZE]
                          [--step_size STEP_SIZE] [--save_directory SAVE_DIRECTORY] [--use_cuda USE_CUDA]
 
@@ -95,6 +95,11 @@ optional arguments:
   --save_directory SAVE_DIRECTORY
                         Directory to save results
   --use_cuda USE_CUDA   Use CUDA for GPU acceleration
+```
+
+### GUI
+```sh
+python user_interface.py
 ```
 
 ## License
