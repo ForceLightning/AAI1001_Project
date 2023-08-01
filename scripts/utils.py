@@ -7,9 +7,8 @@ from typing import Callable, Tuple, Union, Optional, List, Dict
 import torchinfo
 
 sys.path.append("../" + os.path.dirname(os.path.realpath(__file__)))
-
+from scripts.GradCAM1D import GradCAM as GradCAM1D  
 from TCN.TCN.tcn import TCN_DimensionalityReduced
-from scripts.GradCAM1D import GradCAM as GradCAM1D
 
 import numpy as np
 import matplotlib.pyplot as plt
