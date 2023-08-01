@@ -102,6 +102,14 @@ optional arguments:
 python user_interface.py
 ```
 
+## Measurements
+Measurements are taken from the `testing.py` and `explainability.py` scripts. Firstly, classification metrics like accuracy, positive predictive value, sensitivity, specificity, f1-score, AUROC, and AUPRC are measured. Since ROC plots do not accurately reflect classification performance for unbalanced datasets, AUPRC would be more representative of the model's performance. We include both due to the precedence set by prior works.
+
+For explainability, the model inputs are perturbed towards the mean by multiplying the Grad-CAM score by the distance the signal is from the mean. This is repeated 10 times to show that when the portions of the signal that are important to the prediction are perturbed away from normal values, the classification performance of the model will degrade.
+
+## Contributors
+All authors contributed equally.
+
 ## License
 
 [MIT](https://choosealicense.com/licenses/mit/)

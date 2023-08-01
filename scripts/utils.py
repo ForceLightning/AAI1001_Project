@@ -2,7 +2,7 @@ import sys
 import os
 
 import json
-from typing import Callable, Tuple, Union, Optional, List, Dict
+from typing import Callable, Tuple, Union, Optional, List, Dict, Any
 
 import torchinfo
 
@@ -291,6 +291,48 @@ def label_encode(
         raise ValueError(f"label {label} not in classes {classes}")
     return classes.index(label)
 
+    
+def label_decode(
+    labels: Union[int, List[int], np.ndarray, torch.Tensor],
+    classes: Optional[List] = ["N", "S", "V", "F", "Q"]
+) -> Union[Any, List]:
+    """Decodes a label from an integer.
+
+    Args:
+        labels (Union[int, List[int], np.NDArray[int], torch.Tensor[int]]): Labels to decode.
+        classes (Optional[List], optional): Classes to decode to. Defaults to ["N", "S", "V", "F", "Q"].
+
+    Raises:
+        ValueError: If label is not in classes, or if labels is not 1D.
+        TypeError: If labels is not an int, list, np.ndarray of ints or torch.Tensor of ints.
+
+    Returns:
+        Union[Any, List]: Decoded labels.
+    """
+    if isinstance(labels, int):
+        return classes[labels]
+
+    if isinstance(labels, np.ndarray):
+        if labels.ndim != 1:
+            raise ValueError(f"labels must be 1D, not {labels.ndim}D")
+        if labels.dtype == np.int64 or labels.dtype == np.int32:
+            return [classes[label] for label in labels]
+        else:
+            raise TypeError(f"labels must be of type int, not {labels.dtype}")
+    
+    if isinstance(labels, torch.Tensor):
+        if labels.ndim != 1:
+            labels = labels.squeeze()
+        if labels.ndim != 1:
+            raise ValueError(f"labels must be a scalar, not {labels.shape}")
+        if labels.dtype == torch.int64 or labels.dtype == torch.int32\
+            or labels.dtype == torch.int16 or labels.dtype == torch.int8\
+            or labels.dtype == torch.uint8:
+            return [classes[label] for label in labels]
+        else:
+            raise TypeError(f"labels must be of type int, not {labels.dtype}")
+
+    return [classes[label] for label in labels]
 
 class TCN(nn.Module):
     """Temporal Convolutional Network (TCN) with dimensionality reduction.
@@ -418,6 +460,7 @@ def k_fold_inference(
         print(model_dir + f"{fold + 1}" + "/" + weights_fn)
         learner.load(model_dir + f"{fold + 1}" + "/" + weights_fn)
         proba, y = learner.get_preds(dl=test_dl)
+        proba = proba.softmax(dim=1)
         preds = proba.argmax(dim=1)
         classification_reports.append(
             classification_report(
