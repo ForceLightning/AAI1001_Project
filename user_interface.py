@@ -24,9 +24,9 @@ from scripts.GradCAM1D import GradCAM as GradCAM1D
 b_toggle_layout = True
 # integer, for use when displaying the heartbeats
 i_index = 0
+#global data variables
 dataset = None
 model_outputs = None
-
 
 def init_window():
     # init window
@@ -57,6 +57,7 @@ def toggle_layout():
         layout_2.pack(padx=10, pady=10)
 
 def previous_beat():    
+    #decrement index and update layout
     global i_index
     i_index -= 1
     i_index %= len(dataset)
@@ -64,6 +65,7 @@ def previous_beat():
     return
 
 def next_beat():
+    #increment index and update layout
     global i_index
     i_index += 1
     i_index %= len(dataset)
@@ -78,29 +80,10 @@ def init_layout_1(parent):
     label.config(font=("Courier", 32))
     label.pack()
 
-    # buttons
+    # button to prompt user to select ECG file
     btn_select = tk.Button(parent, text="Select ECG File", command=process_data)
     btn_select.pack(pady=20)
 
-    # Setting of Screen Width
-    #user32 = ctypes.windll.user32
-    #screen_width = user32.GetSystemMetrics(0)
-    #screen_height = user32.GetSystemMetrics(1)
-    #window_width = int(screen_width * 0.8)
-    #window_height = int(screen_height * 0.8)
-    #window.geometry(f"{window_width}x{window_height}")
-    #input_frame = ttk.Frame(parent)
-    #input_frame.pack(padx=10, pady=10)
-
-    # THIS PART IS FOR TESTING ONLY (TO SEE IF GRAPH CAN BE SHOWN)
-    #data_label = ttk.Label(input_frame, text="Enter data (comma-separated):")
-    #data_label.pack(side=tk.LEFT)
-    #data_entry = ttk.Entry(input_frame, width=30)
-    #data_entry.pack(side=tk.LEFT)
-    #plot_button = ttk.Button(input_frame, text="Plot Graph", command=process_data)
-    #plot_button.pack(side=tk.LEFT)
-
-    #return data_entry
 
 #results page
 def init_layout_2(parent):
@@ -141,11 +124,8 @@ def init_layout_2(parent):
     btn_right = tk.Button(button_holder, text="Next Beat", command=next_beat)
     btn_right.grid(row=1, column=1, padx=5, pady=5)
 
-
-
     # button to return to previous page
     return_btn = tk.Button(pred_holder, text="Return", command=toggle_layout)
-    #return_btn.pack()
     return_btn.grid(row=3,column=0, padx=5, pady=5)
 
     return graph_frame, text_prediction, graph_proba_frame
@@ -169,10 +149,10 @@ def update_layout_2(index):
     x_values = ["N", "S", "V", "F", "Q"]
     y_values = model_outputs["probas"][index] * 100
     plt.bar(x_values, y_values)
-    plt.yticks(np.arange(0, 100, 10))
+    plt.yticks(np.arange(0, 101, 10))
     plt.ylim(0, 100)
     plt.xlabel("Types of Heartbeats")
-    plt.ylabel("Confidence Level")
+    plt.ylabel("Confidence Level (%)")
 
     for widget in graph_proba_frame.winfo_children():
         widget.destroy()
@@ -229,7 +209,6 @@ def plot_explainability(heartbeat: np.ndarray, cam: np.ndarray, fig: plt.Figure,
 
 
 def process_data():
-
     file_path = filedialog.askopenfilename(
         filetypes=[("WFDB Data Files", "*.dat")])
     if not file_path:
